@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Earnings Tracker</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand-block">
+        <img
+          class="brand-image"
+          src="https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=500&q=80"
+          alt="Desk with calculator and paperwork"
+        >
+        <div>
+          <p class="eyebrow">Live Pay</p>
+          <h1 data-i18n="appTitle">Earnings Tracker</h1>
+        </div>
+      </div>
+
+      <nav class="main-nav">
+        <button class="nav-button active" data-section="dashboard" data-i18n="navDashboard">Dashboard</button>
+        <button class="nav-button" data-section="time-off" data-i18n="navTimeOff">Time Off</button>
+        <button class="nav-button" data-section="bonuses" data-i18n="navBonuses">Bonuses</button>
+        <button class="nav-button" data-section="history" data-i18n="navHistory">History</button>
+        <button class="nav-button" data-section="settings" data-i18n="navSettings">Settings</button>
+      </nav>
+
+      <div class="sidebar-note">
+        <p data-i18n="localTimeNote">Using your local system time.</p>
+        <strong id="sidebarClock">--:--</strong>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <section id="setupPanel" class="setup-panel hidden" aria-labelledby="setupTitle">
+        <div class="section-heading">
+          <p class="eyebrow">First setup</p>
+          <h2 id="setupTitle">Tell the tracker how your workday runs.</h2>
+          <p>These settings stay in this browser with localStorage.</p>
+        </div>
+        <form id="setupForm" class="form-grid">
+          <label>
+            Hourly wage
+            <input id="setupWage" type="number" min="0.01" step="0.01" placeholder="25.00" required>
+          </label>
+          <label>
+            Hours per workday
+            <input id="setupHours" type="number" min="0.25" max="24" step="0.25" placeholder="8" required>
+          </label>
+          <label>
+            Overtime starts after (hours per day)
+            <input id="setupOvertimeAfter" type="number" min="0" max="24" step="0.25" placeholder="8" required>
+          </label>
+          <label>
+            Overtime pay multiplier
+            <input id="setupOvertimeMultiplier" type="number" min="1" step="0.1" placeholder="1.5" required>
+          </label>
+          <label>
+            Start time
+            <input id="setupStart" type="time" required>
+          </label>
+          <fieldset class="weekday-picker">
+            <legend>Workdays</legend>
+            <label><input type="checkbox" name="setupWorkday" value="1"> Mon</label>
+            <label><input type="checkbox" name="setupWorkday" value="2"> Tue</label>
+            <label><input type="checkbox" name="setupWorkday" value="3"> Wed</label>
+            <label><input type="checkbox" name="setupWorkday" value="4"> Thu</label>
+            <label><input type="checkbox" name="setupWorkday" value="5"> Fri</label>
+            <label><input type="checkbox" name="setupWorkday" value="6"> Sat</label>
+            <label><input type="checkbox" name="setupWorkday" value="0"> Sun</label>
+          </fieldset>
+          <p id="setupError" class="form-error" aria-live="polite"></p>
+          <button class="primary-action" type="submit" data-i18n="saveProfile">Save profile</button>
+        </form>
+        <div class="backup-zone setup-restore">
+          <div>
+            <h3 data-i18n="backupTitle">Backup and restore</h3>
+            <p data-i18n="storageNotice">Your data is stored locally in this browser. Export your data if you want a backup.</p>
+          </div>
+          <button id="setupImportData" class="secondary-action" type="button" data-i18n="importData">Import Data</button>
+        </div>
+      </section>
+
+      <div id="appContent" class="hidden">
+        <section id="dashboard" class="page-section active">
+          <div class="section-heading dashboard-heading">
+            <div>
+              <p class="eyebrow" data-i18n="dashboardEyebrow">Dashboard</p>
+              <h2 data-i18n="dashboardTitle">Your earnings up to this moment.</h2>
+              <p class="subtle-line" data-i18n="dashboardSubtitle">Live totals for today and beyond.</p>
+            </div>
+            <div class="dashboard-heading-actions">
+              <button id="openQuickBonus" class="primary-action" type="button" data-i18n="addBonusQuick">+ Add Bonus</button>
+              <button class="secondary-action" data-jump="settings" type="button" data-i18n="editProfile">Edit profile</button>
+            </div>
+          </div>
+
+          <div class="tab-row" role="tablist" aria-label="Earnings range">
+            <button class="tab-button active" data-range="day" role="tab" aria-selected="true" data-i18n="tabDay">Day</button>
+            <button class="tab-button" data-range="week" role="tab" aria-selected="false" data-i18n="tabWeek">Week</button>
+            <button class="tab-button" data-range="month" role="tab" aria-selected="false" data-i18n="tabMonth">Month</button>
+            <button class="tab-button" data-range="year" role="tab" aria-selected="false" data-i18n="tabYear">Year</button>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="earnings-display" aria-live="polite">
+              <p id="rangeLabel" class="eyebrow">Today</p>
+              <span id="workStatus" class="work-status" tabindex="0">Before shift</span>
+              <div id="totalEarnings" class="total-earnings">$0.00</div>
+              <p id="earningsPerSecond" class="earnings-rate">+$0.00 / sec</p>
+              <div id="rateBreakdown" class="rate-breakdown">$0/hr → $0.0000/sec</div>
+              <p id="dashboardStatus" class="status-line">Waiting for profile data.</p>
+              <p id="dashboardEmptyHint" class="dashboard-empty-hint"></p>
+              <div id="endDaySummary" class="end-day-summary hidden"></div>
+              <p id="shiftMessage" class="success-message shift-message" aria-live="polite"></p>
+            </section>
+
+            <section class="metric-list" aria-label="Earnings details">
+              <div class="metric-item">
+                <span data-i18n="baseIncome">Base income</span>
+                <strong id="baseIncome">$0.00</strong>
+              </div>
+              <div class="metric-item overtime-metric">
+                <span data-i18n="overtimeIncome">Overtime income</span>
+                <strong id="overtimeIncome">$0.00</strong>
+              </div>
+              <div class="metric-item">
+                <span data-i18n="bonusIncome">Bonus income</span>
+                <strong id="bonusIncome">$0.00</strong>
+              </div>
+              <div class="metric-item">
+                <span data-i18n="paidHours">Paid hours counted</span>
+                <strong id="hoursCounted">0.00</strong>
+              </div>
+              <div class="metric-item overtime-metric">
+                <span data-i18n="overtimeHours">Overtime hours</span>
+                <strong id="overtimeHours">0.00</strong>
+              </div>
+              <div class="metric-item">
+                <span data-i18n="range">Range</span>
+                <strong id="dateRange">--</strong>
+              </div>
+            </section>
+          </div>
+
+          <section class="today-insights" aria-label="Today breakdown">
+            <div class="progress-panel">
+              <div class="progress-heading">
+                <span data-i18n="todayProgress">Today progress</span>
+                <strong id="todayProgressPercent">0%</strong>
+              </div>
+              <div class="progress-track" aria-hidden="true">
+                <div id="todayProgressFill" class="progress-fill"></div>
+              </div>
+            </div>
+            <div class="breakdown-panel">
+              <div class="breakdown-heading">
+                <p class="eyebrow" data-i18n="todayBreakdown">Today Breakdown</p>
+                <h3 data-i18n="breakdownTitle">The receipt for today's grind</h3>
+              </div>
+              <dl class="breakdown-list">
+                <div>
+                  <dt data-i18n="breakdownStart">Start time</dt>
+                  <dd id="breakdownStart">--</dd>
+                </div>
+                <div>
+                  <dt data-i18n="breakdownEnd">End or current time</dt>
+                  <dd id="breakdownEnd">--</dd>
+                </div>
+                <div>
+                  <dt data-i18n="breakdownNormal">Normal hours / earnings</dt>
+                  <dd id="breakdownNormal">0.00 hrs / $0.00</dd>
+                </div>
+                <div>
+                  <dt data-i18n="breakdownElapsed">Time elapsed today</dt>
+                  <dd id="breakdownElapsed">0h 0m</dd>
+                </div>
+                <div>
+                  <dt data-i18n="breakdownRemaining">Time remaining in regular shift</dt>
+                  <dd id="breakdownRemaining">0h 0m</dd>
+                </div>
+                <div>
+                  <dt data-i18n="breakdownOvertime">Overtime hours / earnings</dt>
+                  <dd id="breakdownOvertime">0.00 hrs / $0.00</dd>
+                </div>
+                <div>
+                  <dt data-i18n="breakdownBonus">Bonus</dt>
+                  <dd id="breakdownBonus">$0.00</dd>
+                </div>
+                <div>
+                  <dt data-i18n="breakdownTotal">Total</dt>
+                  <dd id="breakdownTotal">$0.00</dd>
+                </div>
+              </dl>
+              <div class="calculation-note" aria-label="Calculation explanation">
+                <p data-i18n="calculatedBasedOn">Calculated based on:</p>
+                <ul id="calculationExplanation"></ul>
+              </div>
+            </div>
+          </section>
+
+          <section id="rangeAnalytics" class="analytics-panel">
+            <div class="analytics-heading">
+              <div>
+                <p class="eyebrow" data-i18n="analyticsEyebrow">Analytics</p>
+                <h3 id="analyticsTitle">Momentum</h3>
+              </div>
+              <strong id="streakCount" class="streak-pill">Streak: 0 days</strong>
+            </div>
+            <div id="analyticsSummaryCards" class="summary-cards"></div>
+            <div id="trendPanel" class="trend-panel hidden">
+              <h4 id="trendTitle">Weekly trend</h4>
+              <div id="trendRows" class="trend-rows"></div>
+            </div>
+          </section>
+
+          <div id="undoToast" class="undo-toast hidden" aria-live="polite">
+            <span id="undoMessage" data-i18n="actionCompleted">Action completed</span>
+            <button id="undoButton" class="quiet-action" type="button" data-i18n="undo">Undo</button>
+          </div>
+
+          <section id="dayControls" class="dashboard-controls">
+            <div class="control-group">
+              <div>
+                <p class="eyebrow" data-i18n="today">Today</p>
+                <h3 data-i18n="shiftTitle">Daily shift</h3>
+              </div>
+              <p class="control-copy" data-i18n="shiftCopy">Uses your saved start time automatically. Clock out when you're done.</p>
+              <div class="inline-actions">
+                <button id="startWorkButton" class="primary-action" type="button" data-i18n="startWork">Start Work</button>
+                <button id="pauseWorkButton" class="secondary-action" type="button" data-i18n="pauseWork">Pause Work</button>
+                <button id="resumeWorkButton" class="secondary-action" type="button" data-i18n="resumeWork">Resume Work</button>
+                <button id="startOvertimeButton" class="primary-action" type="button" data-i18n="startOvertimeNow">Start Overtime Now</button>
+                <button id="retroOvertimeButton" class="secondary-action" type="button" data-i18n="retroOvertime">I already started earlier</button>
+                <button id="endWorkButton" class="secondary-action" type="button" data-i18n="endWork">End Work</button>
+                <button id="resetTodayButton" class="quiet-action" type="button" data-i18n="resetToday">Reset today</button>
+              </div>
+              <form id="retroOvertimeForm" class="day-control-form overtime-start-form hidden">
+                <h4 data-i18n="retroOvertimeTitle">When did overtime start?</h4>
+                <div class="time-entry-grid">
+                  <label>
+                    <span data-i18n="timeHour">Hour</span>
+                    <input id="retroOvertimeHour" type="number" min="1" max="12" step="1" inputmode="numeric" placeholder="05">
+                  </label>
+                  <label>
+                    <span data-i18n="timeMinute">Minute</span>
+                    <input id="retroOvertimeMinute" type="number" min="0" max="59" step="1" inputmode="numeric" placeholder="00">
+                  </label>
+                  <label>
+                    <span data-i18n="timeMeridiem">AM/PM</span>
+                    <select id="retroOvertimeMeridiem">
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="inline-actions">
+                  <button class="primary-action" type="submit" data-i18n="applyOvertimeStart">Apply Overtime Start</button>
+                  <button id="cancelRetroOvertime" class="secondary-action" type="button" data-i18n="cancel">Cancel</button>
+                </div>
+                <p id="retroOvertimeError" class="form-error" aria-live="polite"></p>
+              </form>
+            </div>
+
+            <div class="control-group bonus-control">
+              <div>
+                <p class="eyebrow" data-i18n="quickBonus">Quick bonus</p>
+                <h3 data-i18n="quickBonusTitle">Small win, logged fast</h3>
+              </div>
+              <form id="quickBonusForm" class="day-control-form hidden">
+                <label>
+                  <span data-i18n="amount">Amount</span>
+                  <input id="quickBonusAmount" type="number" min="0.01" step="0.01" placeholder="150.00">
+                </label>
+                <label>
+                  <span data-i18n="bonusType">Type</span>
+                  <select id="quickBonusType">
+                    <option value="Performance" data-i18n="bonusTypePerformance">Performance</option>
+                    <option value="Tips" data-i18n="bonusTypeTips">Tips</option>
+                    <option value="Gift" data-i18n="bonusTypeGift">Gift</option>
+                    <option value="Other" data-i18n="bonusTypeOther">Other</option>
+                  </select>
+                </label>
+                <div class="inline-actions">
+                  <button class="primary-action" type="submit" data-i18n="saveBonus">Save bonus</button>
+                  <button id="cancelQuickBonus" class="secondary-action" type="button" data-i18n="cancel">Cancel</button>
+                </div>
+                <p id="quickBonusError" class="form-error" aria-live="polite"></p>
+              </form>
+            </div>
+
+            <div class="control-group adjustment-control">
+              <div>
+                <p class="eyebrow" data-i18n="optional">Optional</p>
+                <h3 data-i18n="adjustTitle">Adjust today's worked time</h3>
+              </div>
+              <p class="control-copy" data-i18n="adjustCopy">Enter your actual worked time to get a more accurate earnings calculation. This will override automatic tracking.</p>
+              <form id="manualAdjustmentForm" class="day-control-form">
+                <div class="adjustment-fields">
+                  <label>
+                    <span data-i18n="adjustHours">Hours</span>
+                    <input id="adjustHours" type="number" min="0" max="24" step="1" inputmode="numeric" placeholder="8">
+                  </label>
+                  <label>
+                    <span data-i18n="adjustMinutes">Minutes</span>
+                    <input id="adjustMinutes" type="number" min="0" max="59" step="1" inputmode="numeric" placeholder="30">
+                  </label>
+                </div>
+                <div class="inline-actions">
+                  <button class="primary-action" type="submit" data-i18n="applyAdjustment">Apply adjustment</button>
+                  <button id="clearAdjustmentButton" class="secondary-action" type="button" data-i18n="clearAdjustment">Clear adjustment</button>
+                </div>
+                <p id="adjustmentError" class="form-error" aria-live="polite"></p>
+              </form>
+            </div>
+          </section>
+        </section>
+
+        <section id="time-off" class="page-section">
+          <div class="section-heading">
+            <p class="eyebrow" data-i18n="timeOffEyebrow">Time off</p>
+            <h2 data-i18n="timeOffTitle">Full-day time off records.</h2>
+            <p>A saved time off date makes base earnings zero for that day.</p>
+          </div>
+
+          <form id="timeOffForm" class="record-form">
+            <label>
+              Date
+              <input id="timeOffDate" type="date" required>
+            </label>
+            <label>
+              Note
+              <input id="timeOffNote" type="text" maxlength="80" placeholder="Vacation, sick day, appointment">
+            </label>
+            <button class="primary-action" type="submit" data-i18n="addTimeOff">Add time off</button>
+            <p id="timeOffError" class="form-error" aria-live="polite"></p>
+          </form>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Note</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="timeOffTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="bonuses" class="page-section">
+          <div class="section-heading">
+            <p class="eyebrow" data-i18n="bonusesEyebrow">Bonuses</p>
+            <h2 data-i18n="bonusesTitle">One-time bonus records.</h2>
+            <p>Bonuses are added to matching day, week, month, and year totals.</p>
+          </div>
+
+          <form id="bonusForm" class="record-form bonus-form">
+            <label>
+              Date
+              <input id="bonusDate" type="date" required>
+            </label>
+            <label>
+              Amount
+              <input id="bonusAmount" type="number" min="0.01" step="0.01" placeholder="150.00" required>
+            </label>
+            <label>
+              <span data-i18n="bonusType">Type</span>
+              <select id="bonusType">
+                <option value="Performance" data-i18n="bonusTypePerformance">Performance</option>
+                <option value="Tips" data-i18n="bonusTypeTips">Tips</option>
+                <option value="Gift" data-i18n="bonusTypeGift">Gift</option>
+                <option value="Other" data-i18n="bonusTypeOther">Other</option>
+              </select>
+            </label>
+            <label>
+              Note
+              <input id="bonusNote" type="text" maxlength="80" placeholder="Performance, referral, holiday">
+            </label>
+            <button class="primary-action" type="submit" data-i18n="addBonus">Add bonus</button>
+            <p id="bonusError" class="form-error" aria-live="polite"></p>
+          </form>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Amount</th>
+                  <th>Type</th>
+                  <th>Note</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="bonusTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="history" class="page-section">
+          <div class="section-heading">
+            <p class="eyebrow" data-i18n="historyEyebrow">History</p>
+            <h2 data-i18n="historyTitle">Generated from your profile and saved records.</h2>
+            <p>No separate permanent totals are stored.</p>
+          </div>
+
+          <div id="historyEmptyState" class="empty-state hidden">
+            No history yet. Your history will start once you begin using the tracker.
+          </div>
+
+          <div class="history-controls">
+            <label>
+              Start date
+              <input id="historyStartDate" type="date">
+            </label>
+            <label>
+              End date
+              <input id="historyEndDate" type="date">
+            </label>
+            <button id="refreshHistory" class="secondary-action" type="button" data-i18n="refreshHistory">Refresh history</button>
+          </div>
+
+          <div class="history-layout">
+            <section>
+              <h3>Daily history</h3>
+              <div class="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Base</th>
+                      <th>Bonus</th>
+                      <th>Bonus type</th>
+                      <th>Total</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dailyHistoryTable"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section>
+              <h3>Weekly summary</h3>
+              <div class="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Week range</th>
+                      <th>Base</th>
+                      <th>Bonus</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="weeklyHistoryTable"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section>
+              <h3>Monthly summary</h3>
+              <div class="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Month</th>
+                      <th>Base</th>
+                      <th>Bonus</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="monthlyHistoryTable"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section>
+              <h3>Yearly summary</h3>
+              <div class="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Year</th>
+                      <th>Base</th>
+                      <th>Bonus</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="yearlyHistoryTable"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="settings" class="page-section">
+          <div class="section-heading">
+            <p class="eyebrow" data-i18n="settingsEyebrow">Settings</p>
+            <h2 data-i18n="settingsTitle">Profile and saved data.</h2>
+            <p>Changing your profile updates generated earnings totals immediately.</p>
+          </div>
+
+          <form id="preferencesForm" class="form-grid settings-form preferences-form">
+            <label>
+              <span data-i18n="language">Language</span>
+              <select id="languageSelect">
+                <option value="en">English</option>
+                <option value="zh">简体中文</option>
+              </select>
+            </label>
+            <label>
+              <span data-i18n="currency">Currency</span>
+              <select id="currencySelect">
+                <option value="USD">USD ($)</option>
+                <option value="RMB">RMB (¥)</option>
+              </select>
+            </label>
+          </form>
+
+          <form id="profileForm" class="form-grid settings-form">
+            <label>
+              <span data-i18n="hourlyWage">Hourly wage</span>
+              <input id="profileWage" type="number" min="0.01" step="0.01" required>
+            </label>
+            <label>
+              <span data-i18n="hoursPerDay">Hours per workday</span>
+              <input id="profileHours" type="number" min="0.25" max="24" step="0.25" required>
+            </label>
+            <label>
+              <span data-i18n="overtimeAfter">Overtime starts after (hours per day)</span>
+              <input id="profileOvertimeAfter" type="number" min="0" max="24" step="0.25" required>
+            </label>
+            <label>
+              <span data-i18n="overtimeMultiplier">Overtime pay multiplier</span>
+              <input id="profileOvertimeMultiplier" type="number" min="1" step="0.1" required>
+            </label>
+            <label>
+              <span data-i18n="startTime">Start time</span>
+              <input id="profileStart" type="time" required>
+            </label>
+            <fieldset class="weekday-picker">
+              <legend>Workdays</legend>
+              <label><input type="checkbox" name="profileWorkday" value="1"> Mon</label>
+              <label><input type="checkbox" name="profileWorkday" value="2"> Tue</label>
+              <label><input type="checkbox" name="profileWorkday" value="3"> Wed</label>
+              <label><input type="checkbox" name="profileWorkday" value="4"> Thu</label>
+              <label><input type="checkbox" name="profileWorkday" value="5"> Fri</label>
+              <label><input type="checkbox" name="profileWorkday" value="6"> Sat</label>
+              <label><input type="checkbox" name="profileWorkday" value="0"> Sun</label>
+            </fieldset>
+            <p id="profileError" class="form-error" aria-live="polite"></p>
+            <p id="profileSaved" class="success-message" aria-live="polite"></p>
+            <button class="primary-action" type="submit" data-i18n="updateProfile">Update profile</button>
+          </form>
+
+          <div class="backup-zone">
+            <div>
+              <h3 data-i18n="backupTitle">Backup and restore</h3>
+              <p data-i18n="storageNotice">Your data is stored locally in this browser. Export your data if you want a backup.</p>
+            </div>
+            <div class="backup-actions">
+              <button id="exportData" class="secondary-action" type="button" data-i18n="exportData">Export Data</button>
+              <button id="importData" class="secondary-action" type="button" data-i18n="importData">Import Data</button>
+              <input id="importDataFile" class="hidden" type="file" accept="application/json,.json">
+            </div>
+            <p id="backupMessage" class="success-message backup-message" aria-live="polite"></p>
+          </div>
+
+          <div class="danger-zone">
+            <div>
+              <h3 data-i18n="clearDataTitle">Clear all saved data</h3>
+              <p data-i18n="clearDataCopy">This removes all tracker data from this browser and returns setup to a fresh start.</p>
+            </div>
+            <button id="clearData" class="danger-action" type="button" data-i18n="clearAllData">Clear all data</button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
