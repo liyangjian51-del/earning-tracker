@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   currency: "earningsTracker.currency"
 };
 
+const RUSH_BEST_KEY = "earningsTracker.rushToWorkBest";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const TRANSLATIONS = {
   en: {
@@ -185,7 +186,23 @@ const TRANSLATIONS = {
     importError: "Import failed. Choose a valid earnings tracker JSON backup.",
     importReadError: "Could not read that file.",
     resetTodayHelp: "Reset today clears today's work session and manual adjustment only.",
-    clearAllHelp: "Clear all data removes every saved tracker record from this browser."
+    clearAllHelp: "Clear all data removes every saved tracker record from this browser.",
+    takeBreak: "Take a Break",
+    breakPanelTitle: "Tiny reset station",
+    closePanel: "Close",
+    chooseGame: "Choose a game",
+    runnerGame: "Going to Work",
+    backToGames: "Back to games",
+    gamePlaceholder: "Game area ready. The runner clocks in later.",
+    rushToWork: "Rush to Work",
+    rushStartCopy: "Jump the commute chaos. Duck the corporate signage.",
+    rushGameOver: "Game over",
+    rushGameOverCopy: "The commute won this round. Coffee survived? Unclear.",
+    startGame: "Start Game",
+    restartGame: "Restart",
+    scoreLabel: "Score",
+    bestLabel: "Best",
+    runnerControls: "Space to jump · S to duck"
   },
   zh: {
     appTitle: "收入追踪器",
@@ -361,7 +378,23 @@ const TRANSLATIONS = {
     importError: "导入失败。请选择有效的收入追踪器 JSON 备份。",
     importReadError: "无法读取该文件。",
     resetTodayHelp: "重置今天只会清除今天的工作状态和手动调整。",
-    clearAllHelp: "清除所有数据会删除此浏览器中的全部追踪器记录。"
+    clearAllHelp: "清除所有数据会删除此浏览器中的全部追踪器记录。",
+    takeBreak: "开始摸鱼",
+    breakPanelTitle: "小小重启站",
+    closePanel: "关闭",
+    chooseGame: "选择一个游戏",
+    runnerGame: "出门上班",
+    backToGames: "返回游戏列表",
+    gamePlaceholder: "游戏区域已准备好。跑酷员工稍后上岗。",
+    rushToWork: "通勤冲刺",
+    rushStartCopy: "跳过通勤混乱，低头躲开职场标牌。",
+    rushGameOver: "游戏结束",
+    rushGameOverCopy: "这轮通勤赢了。咖啡有没有保住？不好说。",
+    startGame: "开始游戏",
+    restartGame: "重新开始",
+    scoreLabel: "分数",
+    bestLabel: "最佳",
+    runnerControls: "空格跳跃 · S 下蹲"
   }
 };
 
@@ -380,6 +413,8 @@ let undoTimer = null;
 let pendingUndo = null;
 let displayedEarningsValue = 0;
 let earningsAnimationFrame = null;
+let rushGame = null;
+let rushSounds = null;
 
 const elements = {
   setupPanel: document.querySelector("#setupPanel"),
@@ -460,6 +495,20 @@ const elements = {
   adjustMinutes: document.querySelector("#adjustMinutes"),
   clearAdjustmentButton: document.querySelector("#clearAdjustmentButton"),
   adjustmentError: document.querySelector("#adjustmentError"),
+  openBreakPanel: document.querySelector("#openBreakPanel"),
+  breakPanel: document.querySelector("#breakPanel"),
+  closeBreakPanel: document.querySelector("#closeBreakPanel"),
+  breakMenu: document.querySelector("#breakMenu"),
+  runnerGameButton: document.querySelector("#runnerGameButton"),
+  gameContainer: document.querySelector("#gameContainer"),
+  runnerCanvas: document.querySelector("#runnerCanvas"),
+  runnerScore: document.querySelector("#runnerScore"),
+  runnerBest: document.querySelector("#runnerBest"),
+  runnerOverlay: document.querySelector("#runnerOverlay"),
+  runnerOverlayTitle: document.querySelector("#runnerOverlayTitle"),
+  runnerOverlayCopy: document.querySelector("#runnerOverlayCopy"),
+  runnerStartButton: document.querySelector("#runnerStartButton"),
+  backToGames: document.querySelector("#backToGames"),
   openQuickBonus: document.querySelector("#openQuickBonus"),
   quickBonusForm: document.querySelector("#quickBonusForm"),
   quickBonusAmount: document.querySelector("#quickBonusAmount"),
@@ -613,6 +662,13 @@ function wireForms() {
   elements.undoButton.addEventListener("click", undoLastAction);
   elements.manualAdjustmentForm.addEventListener("submit", applyManualAdjustment);
   elements.clearAdjustmentButton.addEventListener("click", clearManualAdjustment);
+  elements.openBreakPanel.addEventListener("click", openBreakPanel);
+  elements.closeBreakPanel.addEventListener("click", closeBreakPanel);
+  elements.runnerGameButton.addEventListener("click", showRunnerGameContainer);
+  elements.backToGames.addEventListener("click", showBreakMenu);
+  elements.runnerStartButton.addEventListener("click", startRushGame);
+  document.addEventListener("keydown", handleRushGameKeyDown);
+  document.addEventListener("keyup", handleRushGameKeyUp);
   elements.openQuickBonus.addEventListener("click", openQuickBonusForm);
   elements.cancelQuickBonus.addEventListener("click", closeQuickBonusForm);
   elements.quickBonusForm.addEventListener("submit", addQuickBonusRecord);
@@ -658,6 +714,9 @@ function applyLanguage() {
   });
   elements.resetTodayButton.title = t("resetTodayHelp");
   elements.clearData.title = t("clearAllHelp");
+  if (rushGame && rushGame.state !== "running") {
+    showRushOverlay(rushGame.state === "gameOver" ? "gameOver" : "idle");
+  }
 }
 
 function t(key, replacements = {}) {
@@ -1313,6 +1372,675 @@ function clearManualAdjustment() {
   renderEverything();
 }
 
+function openBreakPanel() {
+  elements.breakPanel.classList.remove("hidden");
+  document.body.classList.add("break-panel-open");
+  showBreakMenu();
+}
+
+function closeBreakPanel() {
+  stopRushGameForPanel();
+  elements.breakPanel.classList.add("hidden");
+  document.body.classList.remove("break-panel-open");
+}
+
+function showRunnerGameContainer() {
+  elements.breakMenu.classList.add("hidden");
+  elements.gameContainer.classList.remove("hidden");
+  initRushGame();
+  drawRushGame();
+  elements.runnerCanvas.focus();
+}
+
+function showBreakMenu() {
+  stopRushGameForPanel();
+  elements.gameContainer.classList.add("hidden");
+  elements.breakMenu.classList.remove("hidden");
+}
+
+function stopRushGameForPanel() {
+  if (!rushGame || rushGame.state !== "running") return;
+
+  cancelRushAnimation();
+  rushGame.state = "idle";
+  drawRushGame();
+  showRushOverlay("idle");
+}
+
+function initRushGame() {
+  if (rushGame) return;
+
+  rushGame = {
+    canvas: elements.runnerCanvas,
+    context: elements.runnerCanvas.getContext("2d"),
+    width: elements.runnerCanvas.width,
+    height: elements.runnerCanvas.height,
+    groundY: 196,
+    state: "idle",
+    lastTime: 0,
+    animationFrame: null,
+    score: 0,
+    best: Number(readStorage(RUSH_BEST_KEY, 0)) || 0,
+    baseSpeed: 6,
+    maxSpeed: 30,
+    currentSpeed: 6,
+    speedIncrease: 0,
+    baseSpawnInterval: 1400,
+    currentSpawnInterval: 1400,
+    spawnDifficulty: 0,
+    speedNoticeTimer: 0,
+    spawnNoticeTimer: 0,
+    spawnTimer: 0,
+    lastObstacleX: 0,
+    obstacles: [],
+    clouds: [
+      { x: 42, y: 36, size: 14 },
+      { x: 190, y: 52, size: 18 },
+      { x: 280, y: 30, size: 12 }
+    ],
+    player: createRushPlayer()
+  };
+  updateRushHud();
+  showRushOverlay("idle");
+}
+
+function createRushPlayer() {
+  return {
+    x: 42,
+    y: 142,
+    width: 31,
+    standHeight: 54,
+    duckHeight: 32,
+    height: 54,
+    velocityY: 0,
+    isDucking: false,
+    grounded: true
+  };
+}
+
+function startRushGame() {
+  initRushGame();
+  cancelRushAnimation();
+  rushGame.state = "running";
+  rushGame.lastTime = 0;
+  rushGame.score = 0;
+  rushGame.currentSpeed = rushGame.baseSpeed;
+  rushGame.speedIncrease = 0;
+  rushGame.currentSpawnInterval = rushGame.baseSpawnInterval;
+  rushGame.spawnDifficulty = 0;
+  rushGame.speedNoticeTimer = 0;
+  rushGame.spawnNoticeTimer = 0;
+  rushGame.spawnTimer = 0.8;
+  rushGame.lastObstacleX = 0;
+  rushGame.obstacles = [];
+  rushGame.player = createRushPlayer();
+  elements.runnerOverlay.classList.add("hidden");
+  updateRushHud();
+  elements.runnerCanvas.focus();
+  rushGame.animationFrame = window.requestAnimationFrame(runRushGameFrame);
+}
+
+function runRushGameFrame(timestamp) {
+  if (!rushGame || rushGame.state !== "running") return;
+
+  const delta = rushGame.lastTime ? Math.min(0.034, (timestamp - rushGame.lastTime) / 1000) : 0;
+  rushGame.lastTime = timestamp;
+  updateRushGame(delta);
+  drawRushGame();
+
+  if (rushGame.state === "running") {
+    rushGame.animationFrame = window.requestAnimationFrame(runRushGameFrame);
+  }
+}
+
+function updateRushGame(delta) {
+  const player = rushGame.player;
+  const previousSpeedIncrease = rushGame.speedIncrease;
+  const previousSpawnDifficulty = rushGame.spawnDifficulty;
+  rushGame.score += delta * 10;
+  const speedState = getRushSpeedForScore(rushGame.score);
+  const spawnState = getRushSpawnStateForScore(rushGame.score);
+  rushGame.currentSpeed = speedState.currentSpeed;
+  rushGame.speedIncrease = speedState.speedIncrease;
+  rushGame.currentSpawnInterval = spawnState.currentSpawnInterval;
+  rushGame.spawnDifficulty = spawnState.spawnDifficulty;
+  if (rushGame.speedIncrease > previousSpeedIncrease) {
+    rushGame.speedNoticeTimer = 1.2;
+  }
+  if (rushGame.spawnDifficulty > previousSpawnDifficulty) {
+    rushGame.spawnNoticeTimer = 1.2;
+  }
+  rushGame.speedNoticeTimer = Math.max(0, rushGame.speedNoticeTimer - delta);
+  rushGame.spawnNoticeTimer = Math.max(0, rushGame.spawnNoticeTimer - delta);
+  rushGame.spawnTimer -= delta;
+
+  if (rushGame.spawnTimer <= 0) {
+    if (canSpawnRushObstacle()) {
+      spawnRushObstacle();
+    }
+    rushGame.spawnTimer = getRushNextSpawnDelay();
+  }
+
+  player.velocityY += 1250 * delta;
+  player.y += player.velocityY * delta;
+
+  const targetHeight = player.isDucking && player.grounded ? player.duckHeight : player.standHeight;
+  const previousBottom = player.y + player.height;
+  player.height = targetHeight;
+  player.y = previousBottom - player.height;
+
+  const floorY = rushGame.groundY - player.height;
+  if (player.y >= floorY) {
+    player.y = floorY;
+    player.velocityY = 0;
+    player.grounded = true;
+  } else {
+    player.grounded = false;
+  }
+
+  rushGame.obstacles.forEach((obstacle) => {
+    obstacle.x -= getRushPixelsPerSecond() * delta;
+  });
+  rushGame.obstacles = rushGame.obstacles.filter((obstacle) => obstacle.x + obstacle.width > -24);
+
+  if (rushGame.obstacles.some((obstacle) => boxesOverlap(getRushPlayerHitbox(), obstacle.hitbox))) {
+    endRushGame();
+    return;
+  }
+
+  updateRushHud();
+}
+
+function spawnRushObstacle() {
+  const templates = [
+    { kind: "banana", category: "jump", label: "banana peel", width: 30, height: 14, y: rushGame.groundY - 14 },
+    { kind: "coffee", category: "jump", label: "spilled coffee", width: 34, height: 13, y: rushGame.groundY - 13 },
+    { kind: "scooter", category: "jump", label: "sidewalk scooter", width: 42, height: 30, y: rushGame.groundY - 30 },
+    { kind: "gate", category: "jump", label: "station gate", width: 34, height: 42, y: rushGame.groundY - 42 },
+    { kind: "sign", category: "duck", label: "low meeting sign", width: 56, height: 24, y: rushGame.groundY - 64 },
+    { kind: "bar", category: "duck", label: "commute barrier", width: 62, height: 18, y: rushGame.groundY - 58 }
+  ];
+  const template = templates[Math.floor(Math.random() * templates.length)];
+  const obstacle = {
+    ...template,
+    x: rushGame.width + 18
+  };
+  obstacle.hitbox = obstacle;
+  rushGame.obstacles.push(obstacle);
+  rushGame.lastObstacleX = obstacle.x;
+}
+
+function getRushSpeedForScore(score) {
+  const speedIncrease = Math.floor(score / 100);
+  const currentSpeed = Math.min(rushGame.baseSpeed + speedIncrease, rushGame.maxSpeed);
+
+  return {
+    speedIncrease,
+    currentSpeed
+  };
+}
+
+function getRushPixelsPerSecond() {
+  return rushGame.currentSpeed * 24;
+}
+
+function getRushSpawnStateForScore(score) {
+  const spawnDifficulty = Math.floor(score / 300);
+  const spawnReduction = spawnDifficulty * 120;
+  const currentSpawnInterval = Math.max(rushGame.baseSpawnInterval - spawnReduction, 500);
+
+  return {
+    spawnDifficulty,
+    currentSpawnInterval
+  };
+}
+
+function getRushNextSpawnDelay() {
+  const baseDelay = rushGame.currentSpawnInterval / 1000;
+  const jitter = 0.18 + Math.random() * 0.32;
+  return Math.max(getRushMinimumSpawnDelay(), baseDelay + jitter);
+}
+
+function getRushMinimumSpawnDelay() {
+  return getRushMinimumObstacleSpacing() / getRushPixelsPerSecond();
+}
+
+function getRushMinimumObstacleSpacing() {
+  return Math.max(128, getRushPixelsPerSecond() * 0.72);
+}
+
+function canSpawnRushObstacle() {
+  const lastObstacle = rushGame.obstacles[rushGame.obstacles.length - 1];
+
+  if (!lastObstacle) return true;
+
+  const distance = rushGame.width + 18 - (lastObstacle.x + lastObstacle.width);
+  return distance >= getRushMinimumObstacleSpacing();
+}
+
+function jumpRushPlayer() {
+  if (!rushGame || rushGame.state !== "running") return;
+
+  const player = rushGame.player;
+  if (!player.grounded) return;
+
+  player.velocityY = -510;
+  player.grounded = false;
+  playRushSound("jump");
+}
+
+function setRushDucking(isDucking) {
+  if (!rushGame || rushGame.state !== "running") return;
+  if (isDucking && (!rushGame.player.grounded || rushGame.player.isDucking)) return;
+
+  rushGame.player.isDucking = isDucking;
+
+  if (isDucking) {
+    playRushSound("duck");
+  }
+}
+
+function endRushGame() {
+  playRushSound("hit");
+  rushGame.state = "gameOver";
+  cancelRushAnimation();
+  rushGame.best = Math.max(getRushBestScore(), rushGame.best, Math.floor(rushGame.score));
+  writeStorage(RUSH_BEST_KEY, rushGame.best);
+  updateRushHud();
+  drawRushGame();
+  showRushOverlay("gameOver");
+}
+
+function cancelRushAnimation() {
+  if (rushGame && rushGame.animationFrame) {
+    window.cancelAnimationFrame(rushGame.animationFrame);
+    rushGame.animationFrame = null;
+  }
+}
+
+function getRushAudioContext() {
+  if (!rushSounds) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+
+    rushSounds = {
+      context: new AudioContextClass(),
+      masterGain: null
+    };
+    rushSounds.masterGain = rushSounds.context.createGain();
+    rushSounds.masterGain.gain.value = 0.16;
+    rushSounds.masterGain.connect(rushSounds.context.destination);
+  }
+
+  if (rushSounds.context.state === "suspended") {
+    rushSounds.context.resume();
+  }
+
+  return rushSounds.context;
+}
+
+function playRushSound(type) {
+  const context = getRushAudioContext();
+  if (!context || !rushSounds.masterGain) return;
+
+  const soundMap = {
+    jump: playProceduralJumpSound,
+    duck: playProceduralDuckSound,
+    hit: playProceduralHitSound
+  };
+  const playSound = soundMap[type];
+
+  if (playSound) {
+    playSound(context, rushSounds.masterGain);
+  }
+}
+
+function playProceduralJumpSound(context, destination) {
+  const now = context.currentTime;
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+
+  oscillator.type = "triangle";
+  oscillator.frequency.setValueAtTime(420, now);
+  oscillator.frequency.exponentialRampToValueAtTime(760, now + 0.12);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.42, now + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+  oscillator.connect(gain);
+  gain.connect(destination);
+  oscillator.start(now);
+  oscillator.stop(now + 0.15);
+}
+
+function playProceduralDuckSound(context, destination) {
+  const now = context.currentTime;
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+
+  oscillator.type = "square";
+  oscillator.frequency.setValueAtTime(180, now);
+  oscillator.frequency.exponentialRampToValueAtTime(95, now + 0.09);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.24, now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
+  oscillator.connect(gain);
+  gain.connect(destination);
+  oscillator.start(now);
+  oscillator.stop(now + 0.12);
+}
+
+function playProceduralHitSound(context, destination) {
+  const now = context.currentTime;
+  const noise = context.createBufferSource();
+  const buffer = context.createBuffer(1, context.sampleRate * 0.16, context.sampleRate);
+  const data = buffer.getChannelData(0);
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  const thud = context.createOscillator();
+  const thudGain = context.createGain();
+
+  for (let index = 0; index < data.length; index += 1) {
+    data[index] = (Math.random() * 2 - 1) * (1 - index / data.length);
+  }
+
+  noise.buffer = buffer;
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(520, now);
+  gain.gain.setValueAtTime(0.5, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(destination);
+
+  thud.type = "sine";
+  thud.frequency.setValueAtTime(105, now);
+  thud.frequency.exponentialRampToValueAtTime(52, now + 0.18);
+  thudGain.gain.setValueAtTime(0.36, now);
+  thudGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+  thud.connect(thudGain);
+  thudGain.connect(destination);
+
+  noise.start(now);
+  thud.start(now);
+  noise.stop(now + 0.17);
+  thud.stop(now + 0.22);
+}
+
+function handleRushGameKeyDown(event) {
+  if (!isRushGameVisible()) return;
+  if (isTypingField(document.activeElement)) return;
+
+  if (event.code === "Space") {
+    event.preventDefault();
+    if (!rushGame || rushGame.state !== "running") {
+      startRushGame();
+      return;
+    }
+    jumpRushPlayer();
+  }
+
+  if (event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    setRushDucking(true);
+  }
+}
+
+function handleRushGameKeyUp(event) {
+  if (!isRushGameVisible()) return;
+  if (isTypingField(document.activeElement)) return;
+
+  if (event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    setRushDucking(false);
+  }
+}
+
+function isRushGameVisible() {
+  return !elements.breakPanel.classList.contains("hidden") && !elements.gameContainer.classList.contains("hidden");
+}
+
+function isTypingField(element) {
+  if (!element) return false;
+
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName);
+}
+
+function updateRushHud() {
+  if (!rushGame) return;
+
+  elements.runnerScore.textContent = String(Math.floor(rushGame.score));
+  elements.runnerBest.textContent = String(rushGame.best);
+}
+
+function showRushOverlay(mode) {
+  elements.runnerOverlay.classList.remove("hidden");
+  elements.runnerOverlayTitle.textContent = mode === "gameOver" ? t("rushGameOver") : t("rushToWork");
+  elements.runnerOverlayCopy.textContent = mode === "gameOver" ? t("rushGameOverCopy") : t("rushStartCopy");
+  elements.runnerStartButton.textContent = mode === "gameOver" ? t("restartGame") : t("startGame");
+}
+
+function getRushBestScore() {
+  return Math.max(0, Math.floor(Number(readStorage(RUSH_BEST_KEY, 0)) || 0));
+}
+
+function drawRushGame() {
+  if (!rushGame) return;
+
+  const ctx = rushGame.context;
+  ctx.clearRect(0, 0, rushGame.width, rushGame.height);
+  drawRushBackground(ctx);
+  rushGame.obstacles.forEach((obstacle) => drawRushObstacle(ctx, obstacle));
+  drawRushWorker(ctx, rushGame.player);
+  drawRushSpeedNotice(ctx);
+}
+
+function drawRushBackground(ctx) {
+  ctx.fillStyle = "#151713";
+  ctx.fillRect(0, 0, rushGame.width, rushGame.height);
+  ctx.fillStyle = "rgba(52, 198, 172, 0.08)";
+  ctx.fillRect(0, 0, rushGame.width, rushGame.height);
+
+  rushGame.clouds.forEach((cloud, index) => {
+    const drift = rushGame.state === "running" ? (rushGame.score * (0.6 + index * 0.2)) % (rushGame.width + 80) : 0;
+    const x = (cloud.x - drift + rushGame.width + 60) % (rushGame.width + 80) - 40;
+    ctx.fillStyle = "rgba(174, 183, 172, 0.18)";
+    ctx.beginPath();
+    ctx.arc(x, cloud.y, cloud.size, 0, Math.PI * 2);
+    ctx.arc(x + cloud.size, cloud.y + 3, cloud.size * 0.75, 0, Math.PI * 2);
+    ctx.arc(x - cloud.size, cloud.y + 4, cloud.size * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.strokeStyle = "#3d443b";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, rushGame.groundY + 1);
+  ctx.lineTo(rushGame.width, rushGame.groundY + 1);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(244, 241, 233, 0.16)";
+  ctx.setLineDash([10, 12]);
+  ctx.beginPath();
+  ctx.moveTo(0, rushGame.groundY + 22);
+  ctx.lineTo(rushGame.width, rushGame.groundY + 22);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawRushWorker(ctx, player) {
+  const ducking = player.isDucking && player.grounded;
+  const x = player.x;
+  const y = player.y;
+  const h = player.height;
+  const bodyTop = y + (ducking ? 10 : 18);
+
+  ctx.save();
+  ctx.translate(x, 0);
+
+  ctx.fillStyle = "#f0c7a5";
+  ctx.beginPath();
+  ctx.arc(15, y + (ducking ? 8 : 10), 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#253044";
+  ctx.fillRect(8, bodyTop, 18, ducking ? 14 : 24);
+  ctx.fillStyle = "#f4f1e9";
+  ctx.fillRect(12, bodyTop + 4, 10, ducking ? 5 : 12);
+  ctx.fillStyle = "#34c6ac";
+  ctx.fillRect(15, bodyTop + 4, 3, ducking ? 8 : 16);
+
+  ctx.strokeStyle = "#f0c7a5";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(9, bodyTop + 6);
+  ctx.lineTo(-2, bodyTop + (ducking ? 14 : 22));
+  ctx.moveTo(27, bodyTop + 7);
+  ctx.lineTo(39, bodyTop + (ducking ? 8 : 18));
+  ctx.stroke();
+
+  drawCoffee(ctx, 38, bodyTop + (ducking ? 4 : 14));
+  drawBread(ctx, -8, bodyTop + (ducking ? 12 : 22));
+
+  ctx.strokeStyle = "#20241f";
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(12, bodyTop + (ducking ? 14 : 24));
+  ctx.lineTo(5, y + h);
+  ctx.moveTo(23, bodyTop + (ducking ? 14 : 24));
+  ctx.lineTo(32, y + h);
+  ctx.stroke();
+
+  ctx.fillStyle = "#f09a3e";
+  ctx.fillRect(6, y + 2, 18, 4);
+  ctx.restore();
+}
+
+function drawCoffee(ctx, x, y) {
+  ctx.fillStyle = "#f4f1e9";
+  ctx.fillRect(x, y, 8, 12);
+  ctx.fillStyle = "#c74338";
+  ctx.fillRect(x - 1, y - 3, 10, 4);
+  ctx.strokeStyle = "rgba(244, 241, 233, 0.52)";
+  ctx.beginPath();
+  ctx.moveTo(x + 4, y - 7);
+  ctx.quadraticCurveTo(x + 8, y - 12, x + 5, y - 16);
+  ctx.stroke();
+}
+
+function drawBread(ctx, x, y) {
+  ctx.fillStyle = "#e0b64b";
+  ctx.beginPath();
+  ctx.moveTo(x + 3, y + 9);
+  ctx.lineTo(x + 9, y + 9);
+  ctx.quadraticCurveTo(x + 12, y + 9, x + 12, y + 6);
+  ctx.quadraticCurveTo(x + 12, y, x + 6, y);
+  ctx.quadraticCurveTo(x, y, x, y + 6);
+  ctx.quadraticCurveTo(x, y + 9, x + 3, y + 9);
+  ctx.fill();
+}
+
+function drawRushObstacle(ctx, obstacle) {
+  ctx.save();
+  ctx.translate(obstacle.x, obstacle.y);
+
+  if (obstacle.kind === "banana") {
+    ctx.strokeStyle = "#e0b64b";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(15, 7, 12, 0.18 * Math.PI, 0.92 * Math.PI);
+    ctx.stroke();
+  } else if (obstacle.kind === "coffee") {
+    ctx.fillStyle = "#7d4a2d";
+    ctx.beginPath();
+    ctx.ellipse(18, 8, 17, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f4f1e9";
+    ctx.fillRect(5, -2, 10, 11);
+  } else if (obstacle.kind === "scooter") {
+    ctx.strokeStyle = "#a98ee5";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(8, 24);
+    ctx.lineTo(30, 24);
+    ctx.lineTo(24, 8);
+    ctx.moveTo(30, 24);
+    ctx.lineTo(38, 4);
+    ctx.stroke();
+    drawWheel(ctx, 8, 26);
+    drawWheel(ctx, 32, 26);
+  } else if (obstacle.kind === "gate") {
+    ctx.fillStyle = "#3d443b";
+    ctx.fillRect(4, 0, 26, 42);
+    ctx.fillStyle = "#34c6ac";
+    ctx.fillRect(9, 8, 16, 6);
+  } else if (obstacle.kind === "sign") {
+    ctx.fillStyle = "#c74338";
+    ctx.fillRect(0, 0, obstacle.width, obstacle.height);
+    ctx.fillStyle = "#f4f1e9";
+    ctx.fillRect(8, 6, obstacle.width - 16, 3);
+  } else if (obstacle.kind === "bar") {
+    ctx.fillStyle = "#e0b64b";
+    ctx.fillRect(0, 0, obstacle.width, obstacle.height);
+    ctx.fillStyle = "rgba(21, 23, 19, 0.35)";
+    for (let x = 5; x < obstacle.width; x += 16) {
+      ctx.fillRect(x, 0, 6, obstacle.height);
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawRushSpeedNotice(ctx) {
+  if (!rushGame) return;
+
+  if (rushGame.speedNoticeTimer > 0) {
+    const alpha = Math.min(1, rushGame.speedNoticeTimer);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#f09a3e";
+    ctx.font = "900 16px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("Speed Up!", rushGame.width / 2, 34);
+    ctx.restore();
+  }
+
+  if (rushGame.spawnNoticeTimer > 0) {
+    const alpha = Math.min(1, rushGame.spawnNoticeTimer);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#34c6ac";
+    ctx.font = "800 12px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("More commute chaos", rushGame.width / 2, 52);
+    ctx.restore();
+  }
+}
+
+function drawWheel(ctx, x, y) {
+  ctx.strokeStyle = "#f4f1e9";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function getRushPlayerHitbox() {
+  const player = rushGame.player;
+  return {
+    x: player.x + 5,
+    y: player.y + 3,
+    width: player.width - 8,
+    height: player.height - 4
+  };
+}
+
+function boxesOverlap(first, second) {
+  return first.x < second.x + second.width &&
+    first.x + first.width > second.x &&
+    first.y < second.y + second.height &&
+    first.y + first.height > second.y;
+}
+
 function clearLegacyTodayOverride(todayKey) {
   const legacyKey = "earningsTracker.hoursOverrides";
   const saved = readStorage(legacyKey, null);
@@ -1400,7 +2128,8 @@ function exportAppData() {
       manualAdjustments,
       trackingStartTimestamp,
       language,
-      currency
+      currency,
+      rushBest: getRushBestScore()
     }
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -1470,6 +2199,7 @@ function validateImportPayload(payload) {
   const importedTrackingStart = isValidDateTime(data.trackingStartTimestamp) ? data.trackingStartTimestamp : null;
   const importedLanguage = TRANSLATIONS[data.language] ? data.language : "en";
   const importedCurrency = ["USD", "RMB"].includes(data.currency) ? data.currency : "USD";
+  const importedRushBest = Math.max(0, Math.floor(Number(data.rushBest) || 0));
 
   return {
     ok: true,
@@ -1481,7 +2211,8 @@ function validateImportPayload(payload) {
       manualAdjustments: importedAdjustments,
       trackingStartTimestamp: importedTrackingStart,
       language: importedLanguage,
-      currency: importedCurrency
+      currency: importedCurrency,
+      rushBest: importedRushBest
     }
   };
 }
@@ -1495,6 +2226,11 @@ function applyImportedData(data) {
   trackingStartTimestamp = data.trackingStartTimestamp;
   language = data.language;
   currency = data.currency;
+  writeStorage(RUSH_BEST_KEY, data.rushBest || 0);
+  if (rushGame) {
+    rushGame.best = data.rushBest || 0;
+    updateRushHud();
+  }
   normalizeState();
 
   writeStorage(STORAGE_KEYS.profile, profile);

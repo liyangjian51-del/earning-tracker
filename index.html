@@ -94,8 +94,9 @@
               <p class="subtle-line" data-i18n="dashboardSubtitle">Live totals for today and beyond.</p>
             </div>
             <div class="dashboard-heading-actions">
-              <button id="openQuickBonus" class="primary-action" type="button" data-i18n="addBonusQuick">+ Add Bonus</button>
-              <button class="secondary-action" data-jump="settings" type="button" data-i18n="editProfile">Edit profile</button>
+              <button id="openBreakPanel" class="top-action-btn break-action" type="button" data-i18n="takeBreak">Take a Break</button>
+              <button id="openQuickBonus" class="top-action-btn primary-action" type="button" data-i18n="addBonusQuick">+ Add Bonus</button>
+              <button class="top-action-btn secondary-action" data-jump="settings" type="button" data-i18n="editProfile">Edit profile</button>
             </div>
           </div>
 
@@ -582,6 +583,41 @@
         </section>
       </div>
     </main>
+
+    <aside id="breakPanel" class="break-panel hidden" aria-label="Break panel">
+      <div class="break-panel-header">
+        <div>
+          <p class="eyebrow" data-i18n="takeBreak">Take a Break</p>
+          <h2 data-i18n="breakPanelTitle">Tiny reset station</h2>
+        </div>
+        <button id="closeBreakPanel" class="quiet-action" type="button" data-i18n="closePanel">Close</button>
+      </div>
+
+      <div id="breakMenu" class="break-menu">
+        <h3 data-i18n="chooseGame">Choose a game</h3>
+        <button id="runnerGameButton" class="game-option featured-game-option" type="button" data-i18n="runnerGame">Going to Work</button>
+      </div>
+
+      <div id="gameContainer" class="game-container hidden">
+        <div class="game-container-header">
+          <p class="eyebrow" data-i18n="runnerGame">Going to Work</p>
+          <button id="backToGames" class="quiet-action" type="button" data-i18n="backToGames">Back to games</button>
+        </div>
+        <div class="runner-game-shell">
+          <div class="runner-hud">
+            <span><span data-i18n="scoreLabel">Score</span>: <strong id="runnerScore">0</strong></span>
+            <span><span data-i18n="bestLabel">Best</span>: <strong id="runnerBest">0</strong></span>
+          </div>
+          <canvas id="runnerCanvas" width="320" height="240" tabindex="0" aria-label="Rush to Work game canvas"></canvas>
+          <div id="runnerOverlay" class="runner-overlay">
+            <h3 id="runnerOverlayTitle" data-i18n="rushToWork">Rush to Work</h3>
+            <p id="runnerOverlayCopy" data-i18n="rushStartCopy">Jump the commute chaos. Duck the corporate signage.</p>
+            <button id="runnerStartButton" class="primary-action" type="button" data-i18n="startGame">Start Game</button>
+          </div>
+        </div>
+        <p class="runner-controls" data-i18n="runnerControls">Space to jump · S to duck</p>
+      </div>
+    </aside>
   </div>
 
   <script src="script.js"></script>
