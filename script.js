@@ -10,6 +10,12 @@ const STORAGE_KEYS = {
 };
 
 const RUSH_BEST_KEY = "earningsTracker.rushToWorkBest";
+const RUSH_MUSIC_MUTED_KEY = "earningsTracker.rushMusicMuted";
+const RUSH_BGM_PATH = "assets/audio/bgm.mp3";
+const RUSH_CANVAS_BASE_WIDTH = 640;
+const RUSH_CANVAS_BASE_HEIGHT = 240;
+const RUSH_JUMP_VELOCITY = -455;
+const RUSH_GRAVITY = 1425;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const TRANSLATIONS = {
   en: {
@@ -200,9 +206,15 @@ const TRANSLATIONS = {
     rushGameOverCopy: "The commute won this round. Coffee survived? Unclear.",
     startGame: "Start Game",
     restartGame: "Restart",
+    rushSpeedUp: "Speed Up!",
+    rushSpawnUp: "More commute chaos",
+    rushDifficultyUp: "Commute gets worse!",
     scoreLabel: "Score",
     bestLabel: "Best",
-    runnerControls: "Space to jump · S to duck"
+    runnerControls: "Space to jump · S to duck",
+    musicOn: "Music: On",
+    musicOff: "Music: Off",
+    musicUnavailable: "Music unavailable"
   },
   zh: {
     appTitle: "收入追踪器",
@@ -213,8 +225,8 @@ const TRANSLATIONS = {
     navSettings: "设置",
     localTimeNote: "使用你的本地系统时间。",
     dashboardEyebrow: "仪表盘",
-    dashboardTitle: "此刻为止的收入。",
-    dashboardSubtitle: "实时查看今天和更长周期的收入。",
+    dashboardTitle: "此刻为止的收入",
+    dashboardSubtitle: "实时查看今天和更长期的收入。",
     addBonusQuick: "+ 添加奖金",
     editProfile: "编辑资料",
     tabDay: "日",
@@ -361,7 +373,7 @@ const TRANSLATIONS = {
     dayOff: "今天已标记为休假，基础收入为 0。",
     nonWorkday: "今天不是你的工作日，基础收入为 0。",
     scheduled: "今天还没到开始时间，基础收入为 0。",
-    rangeStatus: "过去的有效工作日按完整工作日计算，今天在工作时间内按实时进度计算，并包含奖金。",
+    rangeStatus: "过去的有效工作日按完整工作日计算，今天在工作时间内按实时进度计算，\n并包含奖金。",
     historyEmpty: "暂无历史。开始使用追踪器后会生成历史记录。",
     historyRangeEmpty: "这个日期范围内没有历史记录。",
     calculatedBasedOn: "计算依据：",
@@ -392,9 +404,15 @@ const TRANSLATIONS = {
     rushGameOverCopy: "这轮通勤赢了。咖啡有没有保住？不好说。",
     startGame: "开始游戏",
     restartGame: "重新开始",
+    rushSpeedUp: "速度提升！",
+    rushSpawnUp: "通勤更拥挤了",
+    rushDifficultyUp: "通勤难度升级！",
     scoreLabel: "分数",
     bestLabel: "最佳",
-    runnerControls: "空格跳跃 · S 下蹲"
+    runnerControls: "空格跳跃 · S 下蹲",
+    musicOn: "音乐：开",
+    musicOff: "音乐：关",
+    musicUnavailable: "音乐不可用"
   }
 };
 
@@ -415,6 +433,7 @@ let displayedEarningsValue = 0;
 let earningsAnimationFrame = null;
 let rushGame = null;
 let rushSounds = null;
+let rushMusic = null;
 
 const elements = {
   setupPanel: document.querySelector("#setupPanel"),
@@ -508,6 +527,7 @@ const elements = {
   runnerOverlayTitle: document.querySelector("#runnerOverlayTitle"),
   runnerOverlayCopy: document.querySelector("#runnerOverlayCopy"),
   runnerStartButton: document.querySelector("#runnerStartButton"),
+  runnerMusicToggle: document.querySelector("#runnerMusicToggle"),
   backToGames: document.querySelector("#backToGames"),
   openQuickBonus: document.querySelector("#openQuickBonus"),
   quickBonusForm: document.querySelector("#quickBonusForm"),
@@ -667,6 +687,7 @@ function wireForms() {
   elements.runnerGameButton.addEventListener("click", showRunnerGameContainer);
   elements.backToGames.addEventListener("click", showBreakMenu);
   elements.runnerStartButton.addEventListener("click", startRushGame);
+  elements.runnerMusicToggle.addEventListener("click", toggleRushMusic);
   document.addEventListener("keydown", handleRushGameKeyDown);
   document.addEventListener("keyup", handleRushGameKeyUp);
   elements.openQuickBonus.addEventListener("click", openQuickBonusForm);
@@ -678,6 +699,7 @@ function wireForms() {
   elements.exportData.addEventListener("click", exportAppData);
   elements.importData.addEventListener("click", () => elements.importDataFile.click());
   elements.setupImportData.addEventListener("click", () => elements.importDataFile.click());
+  window.addEventListener("resize", handleRushCanvasResize);
   elements.importDataFile.addEventListener("change", importAppData);
 
   elements.clearData.addEventListener("click", () => {
@@ -717,6 +739,7 @@ function applyLanguage() {
   if (rushGame && rushGame.state !== "running") {
     showRushOverlay(rushGame.state === "gameOver" ? "gameOver" : "idle");
   }
+  updateRushMusicButton();
 }
 
 function t(key, replacements = {}) {
@@ -1380,6 +1403,7 @@ function openBreakPanel() {
 
 function closeBreakPanel() {
   stopRushGameForPanel();
+  pauseRushMusic();
   elements.breakPanel.classList.add("hidden");
   document.body.classList.remove("break-panel-open");
 }
@@ -1388,23 +1412,58 @@ function showRunnerGameContainer() {
   elements.breakMenu.classList.add("hidden");
   elements.gameContainer.classList.remove("hidden");
   initRushGame();
-  drawRushGame();
-  elements.runnerCanvas.focus();
+  window.requestAnimationFrame(() => {
+    resizeRushCanvas();
+    drawRushGame();
+    elements.runnerCanvas.focus();
+  });
 }
 
 function showBreakMenu() {
   stopRushGameForPanel();
+  pauseRushMusic();
   elements.gameContainer.classList.add("hidden");
   elements.breakMenu.classList.remove("hidden");
 }
 
 function stopRushGameForPanel() {
-  if (!rushGame || rushGame.state !== "running") return;
+  if (!rushGame || rushGame.state !== "running") {
+    pauseRushMusic();
+    return;
+  }
 
   cancelRushAnimation();
+  pauseRushMusic();
   rushGame.state = "idle";
   drawRushGame();
   showRushOverlay("idle");
+}
+
+function handleRushCanvasResize() {
+  if (!rushGame) return;
+
+  resizeRushCanvas();
+  drawRushGame();
+}
+
+function resizeRushCanvas() {
+  if (!rushGame) return;
+
+  const canvas = rushGame.canvas;
+  const cssWidth = Math.max(280, Math.round(canvas.clientWidth || canvas.parentElement?.clientWidth || RUSH_CANVAS_BASE_WIDTH));
+  const cssHeight = Math.round(cssWidth * (RUSH_CANVAS_BASE_HEIGHT / RUSH_CANVAS_BASE_WIDTH));
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const scaledWidth = Math.round(cssWidth * pixelRatio);
+  const scaledHeight = Math.round(cssHeight * pixelRatio);
+
+  if (canvas.width !== scaledWidth || canvas.height !== scaledHeight) {
+    canvas.width = scaledWidth;
+    canvas.height = scaledHeight;
+  }
+
+  rushGame.width = RUSH_CANVAS_BASE_WIDTH;
+  rushGame.height = RUSH_CANVAS_BASE_HEIGHT;
+  rushGame.groundY = 196;
 }
 
 function initRushGame() {
@@ -1413,34 +1472,39 @@ function initRushGame() {
   rushGame = {
     canvas: elements.runnerCanvas,
     context: elements.runnerCanvas.getContext("2d"),
-    width: elements.runnerCanvas.width,
-    height: elements.runnerCanvas.height,
+    width: RUSH_CANVAS_BASE_WIDTH,
+    height: RUSH_CANVAS_BASE_HEIGHT,
     groundY: 196,
     state: "idle",
     lastTime: 0,
     animationFrame: null,
     score: 0,
+    elapsedTime: 0,
     best: Number(readStorage(RUSH_BEST_KEY, 0)) || 0,
-    baseSpeed: 6,
-    maxSpeed: 30,
-    currentSpeed: 6,
+    baseSpeed: 12,
+    maxSpeed: 40,
+    currentSpeed: 12,
     speedIncrease: 0,
-    baseSpawnInterval: 1400,
-    currentSpawnInterval: 1400,
+    baseSpawnInterval: 930,
+    currentSpawnInterval: 930,
     spawnDifficulty: 0,
+    difficultyTier: 0,
     speedNoticeTimer: 0,
     spawnNoticeTimer: 0,
+    difficultyNoticeTimer: 0,
     spawnTimer: 0,
     lastObstacleX: 0,
     obstacles: [],
     clouds: [
-      { x: 42, y: 36, size: 14 },
-      { x: 190, y: 52, size: 18 },
-      { x: 280, y: 30, size: 12 }
+      { x: 72, y: 36, size: 14 },
+      { x: 252, y: 52, size: 18 },
+      { x: 462, y: 30, size: 12 }
     ],
     player: createRushPlayer()
   };
+  resizeRushCanvas();
   updateRushHud();
+  initRushMusic();
   showRushOverlay("idle");
 }
 
@@ -1460,16 +1524,20 @@ function createRushPlayer() {
 
 function startRushGame() {
   initRushGame();
+  resizeRushCanvas();
   cancelRushAnimation();
   rushGame.state = "running";
   rushGame.lastTime = 0;
   rushGame.score = 0;
+  rushGame.elapsedTime = 0;
   rushGame.currentSpeed = rushGame.baseSpeed;
   rushGame.speedIncrease = 0;
   rushGame.currentSpawnInterval = rushGame.baseSpawnInterval;
   rushGame.spawnDifficulty = 0;
+  rushGame.difficultyTier = 0;
   rushGame.speedNoticeTimer = 0;
   rushGame.spawnNoticeTimer = 0;
+  rushGame.difficultyNoticeTimer = 0;
   rushGame.spawnTimer = 0.8;
   rushGame.lastObstacleX = 0;
   rushGame.obstacles = [];
@@ -1477,6 +1545,7 @@ function startRushGame() {
   elements.runnerOverlay.classList.add("hidden");
   updateRushHud();
   elements.runnerCanvas.focus();
+  startRushMusic();
   rushGame.animationFrame = window.requestAnimationFrame(runRushGameFrame);
 }
 
@@ -1497,9 +1566,12 @@ function updateRushGame(delta) {
   const player = rushGame.player;
   const previousSpeedIncrease = rushGame.speedIncrease;
   const previousSpawnDifficulty = rushGame.spawnDifficulty;
+  const previousDifficultyTier = rushGame.difficultyTier;
+  rushGame.elapsedTime += delta;
   rushGame.score += delta * 10;
   const speedState = getRushSpeedForScore(rushGame.score);
   const spawnState = getRushSpawnStateForScore(rushGame.score);
+  rushGame.difficultyTier = getRushDifficultyTier(rushGame.score);
   rushGame.currentSpeed = speedState.currentSpeed;
   rushGame.speedIncrease = speedState.speedIncrease;
   rushGame.currentSpawnInterval = spawnState.currentSpawnInterval;
@@ -1510,8 +1582,12 @@ function updateRushGame(delta) {
   if (rushGame.spawnDifficulty > previousSpawnDifficulty) {
     rushGame.spawnNoticeTimer = 1.2;
   }
+  if (rushGame.difficultyTier > previousDifficultyTier) {
+    rushGame.difficultyNoticeTimer = 1.4;
+  }
   rushGame.speedNoticeTimer = Math.max(0, rushGame.speedNoticeTimer - delta);
   rushGame.spawnNoticeTimer = Math.max(0, rushGame.spawnNoticeTimer - delta);
+  rushGame.difficultyNoticeTimer = Math.max(0, rushGame.difficultyNoticeTimer - delta);
   rushGame.spawnTimer -= delta;
 
   if (rushGame.spawnTimer <= 0) {
@@ -1521,7 +1597,7 @@ function updateRushGame(delta) {
     rushGame.spawnTimer = getRushNextSpawnDelay();
   }
 
-  player.velocityY += 1250 * delta;
+  player.velocityY += RUSH_GRAVITY * delta;
   player.y += player.velocityY * delta;
 
   const targetHeight = player.isDucking && player.grounded ? player.duckHeight : player.standHeight;
@@ -1540,6 +1616,7 @@ function updateRushGame(delta) {
 
   rushGame.obstacles.forEach((obstacle) => {
     obstacle.x -= getRushPixelsPerSecond() * delta;
+    syncRushObstacleHitbox(obstacle);
   });
   rushGame.obstacles = rushGame.obstacles.filter((obstacle) => obstacle.x + obstacle.width > -24);
 
@@ -1552,22 +1629,180 @@ function updateRushGame(delta) {
 }
 
 function spawnRushObstacle() {
-  const templates = [
-    { kind: "banana", category: "jump", label: "banana peel", width: 30, height: 14, y: rushGame.groundY - 14 },
-    { kind: "coffee", category: "jump", label: "spilled coffee", width: 34, height: 13, y: rushGame.groundY - 13 },
-    { kind: "scooter", category: "jump", label: "sidewalk scooter", width: 42, height: 30, y: rushGame.groundY - 30 },
-    { kind: "gate", category: "jump", label: "station gate", width: 34, height: 42, y: rushGame.groundY - 42 },
-    { kind: "sign", category: "duck", label: "low meeting sign", width: 56, height: 24, y: rushGame.groundY - 64 },
-    { kind: "bar", category: "duck", label: "commute barrier", width: 62, height: 18, y: rushGame.groundY - 58 }
-  ];
-  const template = templates[Math.floor(Math.random() * templates.length)];
-  const obstacle = {
-    ...template,
-    x: rushGame.width + 18
-  };
-  obstacle.hitbox = obstacle;
+  const tier = getRushDifficultyTier(rushGame.score);
+  const startX = rushGame.width + 18;
+
+  if (tier >= 2 && Math.random() < 0.24) {
+    const pattern = pickRushDoublePattern();
+    const obstacles = buildRushPattern(pattern, startX);
+    rushGame.obstacles.push(...obstacles);
+    rushGame.lastObstacleX = obstacles[obstacles.length - 1].x;
+    return;
+  }
+
+  const obstacle = createRushObstacle(pickRushSingleObstacle(tier), startX);
   rushGame.obstacles.push(obstacle);
   rushGame.lastObstacleX = obstacle.x;
+}
+
+function getRushDifficultyTier(score) {
+  if (score >= 700) return 2;
+  if (score >= 300) return 1;
+  return 0;
+}
+
+function getRushObstacleLibrary() {
+  return {
+    banana: {
+      kind: "banana",
+      category: "jump",
+      label: "banana peel",
+      width: 36,
+      height: 16,
+      y: rushGame.groundY - 16,
+      hitboxInsets: { left: 6, top: 3, right: 8, bottom: 2 }
+    },
+    coffee: {
+      kind: "coffee",
+      category: "jump",
+      label: "spilled coffee",
+      width: 40,
+      height: 15,
+      y: rushGame.groundY - 15,
+      hitboxInsets: { left: 5, top: 2, right: 7, bottom: 2 }
+    },
+    scooter: {
+      kind: "scooter",
+      category: "jump",
+      label: "sidewalk scooter",
+      width: 48,
+      height: 34,
+      y: rushGame.groundY - 34,
+      hitboxInsets: { left: 4, top: 4, right: 6, bottom: 2 }
+    },
+    gate: {
+      kind: "gate",
+      category: "jump",
+      label: "station gate",
+      width: 40,
+      height: 46,
+      y: rushGame.groundY - 46,
+      hitboxInsets: { left: 6, top: 4, right: 6, bottom: 2 }
+    },
+    sign: {
+      kind: "sign",
+      category: "duck",
+      label: "low meeting sign",
+      width: 62,
+      height: 36,
+      y: rushGame.groundY - 76,
+      hitboxInsets: { left: 4, top: 4, right: 4, bottom: 5 }
+    },
+    bar: {
+      kind: "bar",
+      category: "duck",
+      label: "commute barrier",
+      width: 68,
+      height: 32,
+      y: rushGame.groundY - 70,
+      hitboxInsets: { left: 3, top: 3, right: 3, bottom: 7 }
+    },
+    bollard: {
+      kind: "bollard",
+      category: "jump",
+      label: "station bollard",
+      width: 28,
+      height: 34,
+      y: rushGame.groundY - 34,
+      hitboxInsets: { left: 3, top: 3, right: 3, bottom: 2 }
+    },
+    pedestrian: {
+      kind: "pedestrian",
+      category: "jump",
+      label: "distracted pedestrian",
+      width: 38,
+      height: 52,
+      y: rushGame.groundY - 52,
+      hitboxInsets: { left: 5, top: 4, right: 5, bottom: 2 }
+    },
+    banner: {
+      kind: "banner",
+      category: "duck",
+      label: "hanging promo banner",
+      width: 72,
+      height: 36,
+      y: rushGame.groundY - 68,
+      hitboxInsets: { left: 4, top: 3, right: 4, bottom: 10 }
+    }
+  };
+}
+
+function pickRushSingleObstacle(tier) {
+  const library = getRushObstacleLibrary();
+  const pools = [
+    [library.banana, library.coffee, library.sign, library.bar],
+    [library.banana, library.coffee, library.scooter, library.gate, library.sign, library.bar, library.bollard, library.banner],
+    [library.banana, library.coffee, library.scooter, library.gate, library.sign, library.bar, library.bollard, library.banner, library.pedestrian]
+  ];
+
+  return pickRandom(pools[tier] || pools[0]);
+}
+
+function pickRushDoublePattern() {
+  const library = getRushObstacleLibrary();
+  const patterns = [
+    { sequence: [library.banana, library.coffee], gapMin: 170, gapMax: 220 },
+    { sequence: [library.coffee, library.gate], gapMin: 185, gapMax: 235 },
+    { sequence: [library.sign, library.scooter], gapMin: 190, gapMax: 240 },
+    { sequence: [library.banner, library.banana], gapMin: 205, gapMax: 255 },
+    { sequence: [library.bollard, library.sign], gapMin: 240, gapMax: 300 }
+  ];
+
+  return pickRandom(patterns);
+}
+
+function buildRushPattern(pattern, startX) {
+  const obstacles = [];
+  let nextX = startX;
+
+  pattern.sequence.forEach((template, index) => {
+    const obstacle = createRushObstacle(template, nextX);
+    obstacles.push(obstacle);
+
+    if (index < pattern.sequence.length - 1) {
+      const spacing = randomBetween(pattern.gapMin, pattern.gapMax);
+      nextX = obstacle.x + obstacle.width + spacing;
+    }
+  });
+
+  return obstacles;
+}
+
+function createRushObstacle(template, x) {
+  const obstacle = {
+    ...template,
+    x,
+    hitbox: { x, y: template.y, width: template.width, height: template.height }
+  };
+
+  syncRushObstacleHitbox(obstacle);
+  return obstacle;
+}
+
+function syncRushObstacleHitbox(obstacle) {
+  const insets = obstacle.hitboxInsets || { left: 0, top: 0, right: 0, bottom: 0 };
+  obstacle.hitbox.x = obstacle.x + insets.left;
+  obstacle.hitbox.y = obstacle.y + insets.top;
+  obstacle.hitbox.width = Math.max(8, obstacle.width - insets.left - insets.right);
+  obstacle.hitbox.height = Math.max(8, obstacle.height - insets.top - insets.bottom);
+}
+
+function pickRandom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function randomBetween(min, max) {
+  return min + Math.random() * (max - min);
 }
 
 function getRushSpeedForScore(score) {
@@ -1596,8 +1831,11 @@ function getRushSpawnStateForScore(score) {
 }
 
 function getRushNextSpawnDelay() {
+  const tier = getRushDifficultyTier(rushGame.score);
   const baseDelay = rushGame.currentSpawnInterval / 1000;
-  const jitter = 0.18 + Math.random() * 0.32;
+  const jitterBase = tier >= 2 ? 0.08 : tier === 1 ? 0.1 : 0.14;
+  const jitterRange = tier >= 2 ? 0.12 : tier === 1 ? 0.18 : 0.22;
+  const jitter = jitterBase + Math.random() * jitterRange;
   return Math.max(getRushMinimumSpawnDelay(), baseDelay + jitter);
 }
 
@@ -1606,7 +1844,15 @@ function getRushMinimumSpawnDelay() {
 }
 
 function getRushMinimumObstacleSpacing() {
-  return Math.max(128, getRushPixelsPerSecond() * 0.72);
+  if (rushGame.difficultyTier >= 2) {
+    return 100 + rushGame.currentSpeed * 8;
+  }
+
+  if (rushGame.difficultyTier === 1) {
+    return 110 + rushGame.currentSpeed * 8.5;
+  }
+
+  return 120 + rushGame.currentSpeed * 9;
 }
 
 function canSpawnRushObstacle() {
@@ -1624,7 +1870,7 @@ function jumpRushPlayer() {
   const player = rushGame.player;
   if (!player.grounded) return;
 
-  player.velocityY = -510;
+  player.velocityY = RUSH_JUMP_VELOCITY;
   player.grounded = false;
   playRushSound("jump");
 }
@@ -1642,6 +1888,7 @@ function setRushDucking(isDucking) {
 
 function endRushGame() {
   playRushSound("hit");
+  pauseRushMusic();
   rushGame.state = "gameOver";
   cancelRushAnimation();
   rushGame.best = Math.max(getRushBestScore(), rushGame.best, Math.floor(rushGame.score));
@@ -1656,6 +1903,90 @@ function cancelRushAnimation() {
     window.cancelAnimationFrame(rushGame.animationFrame);
     rushGame.animationFrame = null;
   }
+}
+
+function initRushMusic() {
+  if (rushMusic) {
+    updateRushMusicButton();
+    return rushMusic;
+  }
+
+  const audio = new Audio(RUSH_BGM_PATH);
+  audio.loop = true;
+  audio.volume = 0.18;
+  audio.preload = "none";
+
+  rushMusic = {
+    audio,
+    muted: readStorage(RUSH_MUSIC_MUTED_KEY, false) === true,
+    unavailable: false
+  };
+  audio.muted = rushMusic.muted;
+
+  audio.addEventListener("error", () => {
+    rushMusic.unavailable = true;
+    pauseRushMusic();
+    updateRushMusicButton();
+  });
+
+  updateRushMusicButton();
+  return rushMusic;
+}
+
+function startRushMusic() {
+  const music = initRushMusic();
+  if (!music || music.muted || music.unavailable) return;
+
+  music.audio.play().catch(() => {
+    music.unavailable = true;
+    updateRushMusicButton();
+  });
+}
+
+function pauseRushMusic() {
+  if (!rushMusic || !rushMusic.audio) return;
+  rushMusic.audio.pause();
+}
+
+function toggleRushMusic() {
+  const music = initRushMusic();
+  if (!music || music.unavailable) return;
+
+  music.muted = !music.muted;
+  music.audio.muted = music.muted;
+  writeStorage(RUSH_MUSIC_MUTED_KEY, music.muted);
+  updateRushMusicButton();
+
+  if (music.muted) {
+    pauseRushMusic();
+    return;
+  }
+
+  if (rushGame && rushGame.state === "running") {
+    startRushMusic();
+  }
+}
+
+function updateRushMusicButton() {
+  if (!elements.runnerMusicToggle) return;
+
+  if (!rushMusic) {
+    elements.runnerMusicToggle.disabled = false;
+    elements.runnerMusicToggle.textContent = t("musicOn");
+    elements.runnerMusicToggle.setAttribute("aria-pressed", "true");
+    return;
+  }
+
+  if (rushMusic.unavailable) {
+    elements.runnerMusicToggle.disabled = true;
+    elements.runnerMusicToggle.textContent = t("musicUnavailable");
+    elements.runnerMusicToggle.setAttribute("aria-pressed", "false");
+    return;
+  }
+
+  elements.runnerMusicToggle.disabled = false;
+  elements.runnerMusicToggle.textContent = rushMusic.muted ? t("musicOff") : t("musicOn");
+  elements.runnerMusicToggle.setAttribute("aria-pressed", String(!rushMusic.muted));
 }
 
 function getRushAudioContext() {
@@ -1827,11 +2158,17 @@ function drawRushGame() {
   if (!rushGame) return;
 
   const ctx = rushGame.context;
-  ctx.clearRect(0, 0, rushGame.width, rushGame.height);
+  const scaleX = rushGame.canvas.width / rushGame.width;
+  const scaleY = rushGame.canvas.height / rushGame.height;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, rushGame.canvas.width, rushGame.canvas.height);
+  ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
   drawRushBackground(ctx);
-  rushGame.obstacles.forEach((obstacle) => drawRushObstacle(ctx, obstacle));
-  drawRushWorker(ctx, rushGame.player);
+  rushGame.obstacles.forEach((obstacle) => drawRushObstacle(ctx, obstacle, rushGame.elapsedTime || 0));
+  drawRushPlayer(ctx, rushGame.player, rushGame.elapsedTime || 0);
   drawRushSpeedNotice(ctx);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
 function drawRushBackground(ctx) {
@@ -1867,127 +2204,571 @@ function drawRushBackground(ctx) {
   ctx.setLineDash([]);
 }
 
-function drawRushWorker(ctx, player) {
-  const ducking = player.isDucking && player.grounded;
-  const x = player.x;
-  const y = player.y;
-  const h = player.height;
-  const bodyTop = y + (ducking ? 10 : 18);
+function drawRushPlayer(ctx, player, gameTime) {
+  const pose = getRushPlayerPose(player, gameTime);
+  const metrics = getRushPlayerMetrics(player, pose);
+  const footX = player.x + player.width / 2 + pose.shakeX;
+  const footY = player.y + player.height;
+
+  drawRushPlayerShadow(ctx, footX, footY, metrics, pose);
+
+  if (rushGame && rushGame.state === "running" && rushGame.currentSpeed >= 24 && player.grounded) {
+    drawRushMotionLines(ctx, footX, footY, metrics, pose);
+  }
 
   ctx.save();
-  ctx.translate(x, 0);
+  ctx.translate(footX, footY - pose.bounce);
+  ctx.rotate(pose.tilt);
 
-  ctx.fillStyle = "#f0c7a5";
+  drawRushBackpack(ctx, metrics);
+  drawRushLeg(ctx, -metrics.hipOffset, -metrics.legAnchorY, metrics.legLength, pose.backLegAngle, metrics, false);
+  drawRushLeg(ctx, metrics.hipOffset, -metrics.legAnchorY, metrics.legLength, pose.frontLegAngle, metrics, true);
+  drawRushTorso(ctx, metrics);
+  drawRushArm(ctx, -metrics.shoulderOffset, -metrics.shoulderY, metrics.armLength, pose.backArmAngle, metrics, "bread");
+  drawRushArm(ctx, metrics.shoulderOffset, -metrics.shoulderY, metrics.armLength, pose.frontArmAngle, metrics, "coffee");
+  drawRushHead(ctx, metrics, pose);
+
+  ctx.restore();
+}
+
+function getRushPlayerPose(player, gameTime) {
+  const ducking = player.isDucking && player.grounded;
+  const running = rushGame && rushGame.state === "running" && player.grounded && !ducking;
+  const speed = rushGame ? rushGame.currentSpeed : 0;
+  const runPhase = gameTime * (7.5 + speed * 0.18);
+  const runSwing = running ? Math.sin(runPhase) : 0;
+  const secondarySwing = running ? Math.sin(runPhase * 2) : 0;
+  const airborne = !player.grounded;
+  const crashed = rushGame && rushGame.state === "gameOver";
+
+  return {
+    ducking,
+    airborne,
+    running,
+    runPhase,
+    bounce: running ? Math.abs(secondarySwing) * 1.8 : airborne ? 0.8 : 0,
+    tilt: ducking ? 0.08 : airborne ? -0.18 : runSwing * 0.03,
+    bodyLean: ducking ? 0.1 : airborne ? -0.14 : runSwing * 0.04,
+    frontLegAngle: ducking ? -0.25 : runSwing * 0.75,
+    backLegAngle: ducking ? 0.2 : -runSwing * 0.7,
+    frontArmAngle: ducking ? 0.45 : -runSwing * 0.55 + (airborne ? -0.18 : 0),
+    backArmAngle: ducking ? -0.3 : runSwing * 0.5 + (airborne ? 0.22 : 0),
+    shakeX: crashed ? Math.sin(gameTime * 44) * 1.4 : 0,
+    stressed: crashed
+  };
+}
+
+function getRushPlayerMetrics(player, pose) {
+  const ducking = pose.ducking;
+
+  return {
+    headRadius: ducking ? 7 : 8,
+    torsoWidth: ducking ? 24 : 18,
+    torsoHeight: ducking ? 16 : 23,
+    legLength: ducking ? 12 : 20,
+    armLength: ducking ? 15 : 18,
+    shoulderOffset: ducking ? 10 : 9,
+    shoulderY: ducking ? 21 : 34,
+    hipOffset: ducking ? 6.5 : 5.5,
+    legAnchorY: ducking ? 12 : 20,
+    armThickness: ducking ? 4.2 : 4.8,
+    legThickness: ducking ? 5.4 : 5.8,
+    footWidth: ducking ? 10 : 11,
+    footHeight: 4,
+    headCenterY: ducking ? 32 : 43,
+    shadowWidth: ducking ? 25 : 21,
+    shadowHeight: ducking ? 5.5 : 4.5,
+    bodyBottomY: ducking ? 15 : 24
+  };
+}
+
+function drawRushPlayerShadow(ctx, footX, footY, metrics, pose) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.26)";
   ctx.beginPath();
-  ctx.arc(15, y + (ducking ? 8 : 10), 8, 0, Math.PI * 2);
+  ctx.ellipse(
+    footX,
+    rushGame.groundY + 4,
+    metrics.shadowWidth + (pose.running ? 1.5 : 0),
+    metrics.shadowHeight,
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawRushMotionLines(ctx, footX, footY, metrics, pose) {
+  const alpha = Math.min(0.3, 0.12 + (rushGame.currentSpeed - 24) * 0.012);
+  ctx.save();
+  ctx.strokeStyle = `rgba(244, 241, 233, ${alpha})`;
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  for (let index = 0; index < 3; index += 1) {
+    const offsetY = -metrics.headCenterY + index * 10 + pose.bounce * 0.5;
+    const length = 12 + index * 3;
+    ctx.beginPath();
+    ctx.moveTo(footX - 28 - index * 6, footY + offsetY);
+    ctx.lineTo(footX - 28 - index * 6 - length, footY + offsetY + 1);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRushBackpack(ctx, metrics) {
+  const x = -metrics.torsoWidth / 2 - 5;
+  const y = -metrics.shoulderY + 2;
+  const height = metrics.torsoHeight - 1;
+  fillRoundRect(ctx, x, y, 9, height, 4, "#2d3d53");
+  fillRoundRect(ctx, x + 2, y + 3, 5, 4, 2, "#34c6ac");
+
+  ctx.strokeStyle = "rgba(173, 185, 204, 0.55)";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(-metrics.torsoWidth / 2 - 1, -metrics.shoulderY + 1);
+  ctx.lineTo(-metrics.torsoWidth / 2 - 6, -metrics.shoulderY + 9);
+  ctx.stroke();
+}
+
+function drawRushTorso(ctx, metrics) {
+  const bodyX = -metrics.torsoWidth / 2;
+  const bodyY = -metrics.shoulderY;
+
+  fillRoundRect(ctx, bodyX, bodyY, metrics.torsoWidth, metrics.torsoHeight, 6, "#253044");
+  fillRoundRect(ctx, bodyX + 3, bodyY + 3, metrics.torsoWidth - 6, metrics.torsoHeight - 6, 5, "#f4f1e9");
+
+  ctx.fillStyle = "#34c6ac";
+  ctx.beginPath();
+  ctx.moveTo(0, bodyY + 6);
+  ctx.lineTo(-2.5, bodyY + 9);
+  ctx.lineTo(-1, bodyY + metrics.torsoHeight - 3);
+  ctx.lineTo(1, bodyY + metrics.torsoHeight - 3);
+  ctx.lineTo(2.5, bodyY + 9);
+  ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = "#253044";
-  ctx.fillRect(8, bodyTop, 18, ducking ? 14 : 24);
-  ctx.fillStyle = "#f4f1e9";
-  ctx.fillRect(12, bodyTop + 4, 10, ducking ? 5 : 12);
-  ctx.fillStyle = "#34c6ac";
-  ctx.fillRect(15, bodyTop + 4, 3, ducking ? 8 : 16);
-
-  ctx.strokeStyle = "#f0c7a5";
-  ctx.lineWidth = 4;
+  ctx.fillStyle = "#d7dde6";
   ctx.beginPath();
-  ctx.moveTo(9, bodyTop + 6);
-  ctx.lineTo(-2, bodyTop + (ducking ? 14 : 22));
-  ctx.moveTo(27, bodyTop + 7);
-  ctx.lineTo(39, bodyTop + (ducking ? 8 : 18));
-  ctx.stroke();
+  ctx.moveTo(-5, bodyY + 2);
+  ctx.lineTo(0, bodyY + 7);
+  ctx.lineTo(5, bodyY + 2);
+  ctx.closePath();
+  ctx.fill();
 
-  drawCoffee(ctx, 38, bodyTop + (ducking ? 4 : 14));
-  drawBread(ctx, -8, bodyTop + (ducking ? 12 : 22));
+  fillRoundRect(ctx, -metrics.torsoWidth / 2 + 1, -metrics.legAnchorY - 1, metrics.torsoWidth - 2, 6, 2, "#20241f");
+}
 
-  ctx.strokeStyle = "#20241f";
-  ctx.lineWidth = 5;
+function drawRushLeg(ctx, x, y, length, angle, metrics, frontLeg) {
+  const endX = x + Math.sin(angle) * length * 0.55;
+  const endY = y + length;
+  ctx.save();
+  ctx.strokeStyle = frontLeg ? "#2f3540" : "#28303a";
+  ctx.lineWidth = metrics.legThickness;
+  ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(12, bodyTop + (ducking ? 14 : 24));
-  ctx.lineTo(5, y + h);
-  ctx.moveTo(23, bodyTop + (ducking ? 14 : 24));
-  ctx.lineTo(32, y + h);
+  ctx.moveTo(x, y);
+  ctx.lineTo(endX, endY - 4);
   ctx.stroke();
 
   ctx.fillStyle = "#f09a3e";
-  ctx.fillRect(6, y + 2, 18, 4);
+  fillRoundRect(ctx, endX - metrics.footWidth / 2, endY - metrics.footHeight, metrics.footWidth, metrics.footHeight, 2, "#f09a3e");
   ctx.restore();
 }
 
-function drawCoffee(ctx, x, y) {
-  ctx.fillStyle = "#f4f1e9";
-  ctx.fillRect(x, y, 8, 12);
-  ctx.fillStyle = "#c74338";
-  ctx.fillRect(x - 1, y - 3, 10, 4);
-  ctx.strokeStyle = "rgba(244, 241, 233, 0.52)";
-  ctx.beginPath();
-  ctx.moveTo(x + 4, y - 7);
-  ctx.quadraticCurveTo(x + 8, y - 12, x + 5, y - 16);
-  ctx.stroke();
-}
+function drawRushArm(ctx, x, y, length, angle, metrics, item) {
+  const elbowX = x + Math.cos(angle) * (length * 0.55);
+  const elbowY = y + Math.sin(angle) * (length * 0.35);
+  const handX = elbowX + Math.cos(angle + 0.12) * (length * 0.45);
+  const handY = elbowY + Math.sin(angle + 0.12) * (length * 0.55);
 
-function drawBread(ctx, x, y) {
-  ctx.fillStyle = "#e0b64b";
-  ctx.beginPath();
-  ctx.moveTo(x + 3, y + 9);
-  ctx.lineTo(x + 9, y + 9);
-  ctx.quadraticCurveTo(x + 12, y + 9, x + 12, y + 6);
-  ctx.quadraticCurveTo(x + 12, y, x + 6, y);
-  ctx.quadraticCurveTo(x, y, x, y + 6);
-  ctx.quadraticCurveTo(x, y + 9, x + 3, y + 9);
-  ctx.fill();
-}
-
-function drawRushObstacle(ctx, obstacle) {
   ctx.save();
-  ctx.translate(obstacle.x, obstacle.y);
+  ctx.strokeStyle = "#efc29c";
+  ctx.lineWidth = metrics.armThickness;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(elbowX, elbowY);
+  ctx.lineTo(handX, handY);
+  ctx.stroke();
 
-  if (obstacle.kind === "banana") {
-    ctx.strokeStyle = "#e0b64b";
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.arc(15, 7, 12, 0.18 * Math.PI, 0.92 * Math.PI);
-    ctx.stroke();
-  } else if (obstacle.kind === "coffee") {
-    ctx.fillStyle = "#7d4a2d";
-    ctx.beginPath();
-    ctx.ellipse(18, 8, 17, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#f4f1e9";
-    ctx.fillRect(5, -2, 10, 11);
-  } else if (obstacle.kind === "scooter") {
-    ctx.strokeStyle = "#a98ee5";
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(8, 24);
-    ctx.lineTo(30, 24);
-    ctx.lineTo(24, 8);
-    ctx.moveTo(30, 24);
-    ctx.lineTo(38, 4);
-    ctx.stroke();
-    drawWheel(ctx, 8, 26);
-    drawWheel(ctx, 32, 26);
-  } else if (obstacle.kind === "gate") {
-    ctx.fillStyle = "#3d443b";
-    ctx.fillRect(4, 0, 26, 42);
-    ctx.fillStyle = "#34c6ac";
-    ctx.fillRect(9, 8, 16, 6);
-  } else if (obstacle.kind === "sign") {
-    ctx.fillStyle = "#c74338";
-    ctx.fillRect(0, 0, obstacle.width, obstacle.height);
-    ctx.fillStyle = "#f4f1e9";
-    ctx.fillRect(8, 6, obstacle.width - 16, 3);
-  } else if (obstacle.kind === "bar") {
-    ctx.fillStyle = "#e0b64b";
-    ctx.fillRect(0, 0, obstacle.width, obstacle.height);
-    ctx.fillStyle = "rgba(21, 23, 19, 0.35)";
-    for (let x = 5; x < obstacle.width; x += 16) {
-      ctx.fillRect(x, 0, 6, obstacle.height);
-    }
+  if (item === "coffee") {
+    drawRushCoffee(ctx, handX + 2, handY - 1);
+  } else {
+    drawRushBread(ctx, handX - 8, handY - 4);
   }
 
   ctx.restore();
+}
+
+function drawRushHead(ctx, metrics, pose) {
+  const headY = -metrics.headCenterY;
+
+  ctx.save();
+  ctx.translate(0, headY);
+  ctx.rotate(pose.bodyLean);
+
+  ctx.fillStyle = "#efc29c";
+  ctx.beginPath();
+  ctx.arc(0, 0, metrics.headRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#20241f";
+  ctx.beginPath();
+  ctx.moveTo(-metrics.headRadius + 1, -2);
+  ctx.quadraticCurveTo(0, -metrics.headRadius - 4, metrics.headRadius - 1, -1);
+  ctx.lineTo(metrics.headRadius - 1, -metrics.headRadius + 2);
+  ctx.quadraticCurveTo(0, -metrics.headRadius - 1, -metrics.headRadius + 1, -metrics.headRadius + 2);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "#20241f";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-3.8, -1);
+  ctx.lineTo(-1.5, -1.8);
+  ctx.moveTo(1.5, -1.8);
+  ctx.lineTo(3.8, -1);
+  ctx.stroke();
+
+  ctx.fillStyle = "#20241f";
+  ctx.beginPath();
+  ctx.arc(-2.4, 1.5, 0.9, 0, Math.PI * 2);
+  ctx.arc(2.4, 1.5, 0.9, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#20241f";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  if (pose.stressed) {
+    ctx.moveTo(-2.8, 5);
+    ctx.lineTo(-1.2, 4.1);
+    ctx.lineTo(0, 5.2);
+    ctx.lineTo(1.4, 4.1);
+    ctx.lineTo(3, 5);
+  } else {
+    ctx.arc(0, 4.8, 2.7, 0.12 * Math.PI, 0.88 * Math.PI, false);
+  }
+  ctx.stroke();
+
+  if (pose.stressed) {
+    ctx.fillStyle = "rgba(107, 184, 255, 0.82)";
+    ctx.beginPath();
+    ctx.moveTo(metrics.headRadius - 1, 1);
+    ctx.lineTo(metrics.headRadius + 3, 7);
+    ctx.lineTo(metrics.headRadius - 2, 8);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawRushCoffee(ctx, x, y) {
+  fillRoundRect(ctx, x, y, 8, 12, 2, "#f4f1e9");
+  ctx.fillStyle = "#c74338";
+  ctx.fillRect(x - 1, y - 3, 10, 4);
+  ctx.strokeStyle = "rgba(244, 241, 233, 0.52)";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(x + 4, y - 5);
+  ctx.quadraticCurveTo(x + 8, y - 11, x + 5, y - 14);
+  ctx.stroke();
+}
+
+function drawRushBread(ctx, x, y) {
+  ctx.fillStyle = "#e0b64b";
+  ctx.beginPath();
+  ctx.moveTo(x + 3, y + 10);
+  ctx.lineTo(x + 10, y + 10);
+  ctx.quadraticCurveTo(x + 13, y + 10, x + 13, y + 7);
+  ctx.quadraticCurveTo(x + 13, y, x + 6.5, y);
+  ctx.quadraticCurveTo(x, y, x, y + 7);
+  ctx.quadraticCurveTo(x, y + 10, x + 3, y + 10);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 236, 171, 0.45)";
+  ctx.fillRect(x + 3, y + 3, 7, 2);
+}
+
+function fillRoundRect(ctx, x, y, width, height, radius, color) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawRushObstacle(ctx, obstacle, gameTime) {
+  const animation = getRushObstacleVisualState(obstacle, gameTime);
+
+  if (obstacle.category === "jump") {
+    drawRushObstacleShadow(ctx, obstacle, animation);
+  }
+
+  if (rushGame && rushGame.currentSpeed >= 24) {
+    drawRushObstacleMotionLines(ctx, obstacle, animation);
+  }
+
+  ctx.save();
+  ctx.translate(obstacle.x + animation.offsetX, obstacle.y + animation.offsetY);
+
+  if (obstacle.category === "duck") {
+    ctx.translate(obstacle.width / 2, 0);
+    ctx.rotate(animation.swing);
+    ctx.translate(-obstacle.width / 2, 0);
+  } else if (animation.rotation) {
+    ctx.translate(obstacle.width / 2, obstacle.height / 2);
+    ctx.rotate(animation.rotation);
+    ctx.translate(-obstacle.width / 2, -obstacle.height / 2);
+  }
+
+  if (obstacle.kind === "banana") {
+    drawRushBananaObstacle(ctx, obstacle, animation);
+  } else if (obstacle.kind === "coffee") {
+    drawRushCoffeeObstacle(ctx, obstacle, animation);
+  } else if (obstacle.kind === "scooter") {
+    drawRushScooterObstacle(ctx, obstacle, animation);
+  } else if (obstacle.kind === "gate") {
+    drawRushGateObstacle(ctx, obstacle, animation);
+  } else if (obstacle.kind === "bollard") {
+    drawRushBollardObstacle(ctx, obstacle);
+  } else if (obstacle.kind === "pedestrian") {
+    drawRushPedestrianObstacle(ctx, obstacle, animation);
+  } else if (obstacle.kind === "banner") {
+    drawRushBannerObstacle(ctx, obstacle, animation);
+  } else if (obstacle.kind === "sign") {
+    drawRushSignObstacle(ctx, obstacle, animation);
+  } else if (obstacle.kind === "bar") {
+    drawRushBarrierObstacle(ctx, obstacle, animation);
+  }
+
+  ctx.restore();
+}
+
+function getRushObstacleVisualState(obstacle, gameTime) {
+  const phase = gameTime * 4.2 + obstacle.x * 0.025;
+  const shimmer = 0.7 + Math.sin(phase * 1.4) * 0.2;
+  const wheelRotation = gameTime * (6 + (rushGame ? rushGame.currentSpeed : 0) * 0.18);
+
+  return {
+    phase,
+    shimmer,
+    wheelRotation,
+    wobble: Math.sin(phase) * 0.08,
+    swing: Math.sin(phase * 0.9) * 0.08,
+    bob: Math.sin(phase * 1.3) * 1.4,
+    step: Math.sin(phase * 1.8),
+    offsetX: 0,
+    offsetY: obstacle.kind === "pedestrian" ? Math.sin(phase * 1.8) * 0.7 : 0,
+    rotation: obstacle.kind === "banana" ? Math.sin(phase) * 0.12 : 0
+  };
+}
+
+function drawRushObstacleShadow(ctx, obstacle, animation) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.24)";
+  ctx.beginPath();
+  ctx.ellipse(
+    obstacle.x + obstacle.width / 2,
+    rushGame.groundY + 4,
+    Math.max(9, obstacle.width * 0.42),
+    4 + (obstacle.kind === "pedestrian" ? 1 : 0),
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawRushObstacleMotionLines(ctx, obstacle, animation) {
+  ctx.save();
+  ctx.strokeStyle = "rgba(244, 241, 233, 0.16)";
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = "round";
+  const centerY = obstacle.y + obstacle.height / 2;
+  const lines = obstacle.category === "duck" ? 2 : 3;
+
+  for (let index = 0; index < lines; index += 1) {
+    const offsetY = centerY - 10 + index * 8;
+    const length = 10 + index * 4;
+    ctx.beginPath();
+    ctx.moveTo(obstacle.x - 8 - index * 5, offsetY);
+    ctx.lineTo(obstacle.x - 8 - index * 5 - length, offsetY + (animation.bob * 0.08));
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawRushBananaObstacle(ctx, obstacle, animation) {
+  ctx.save();
+  ctx.translate(obstacle.width / 2, obstacle.height / 2);
+  ctx.rotate(animation.wobble);
+  ctx.translate(-obstacle.width / 2, -obstacle.height / 2);
+
+  ctx.strokeStyle = "#9a7b1f";
+  ctx.lineWidth = 4.6;
+  ctx.beginPath();
+  ctx.arc(15, 9, 13, 0.18 * Math.PI, 0.92 * Math.PI);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#f0d16a";
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.arc(15, 9, 10, 0.22 * Math.PI, 0.88 * Math.PI);
+  ctx.stroke();
+
+  ctx.fillStyle = "#5e6b3f";
+  ctx.fillRect(4, 9, 4, 2);
+  ctx.fillRect(24, 9, 4, 2);
+  ctx.restore();
+}
+
+function drawRushCoffeeObstacle(ctx, obstacle, animation) {
+  ctx.fillStyle = "#4a2a17";
+  ctx.beginPath();
+  ctx.ellipse(20, 10, 18, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = `rgba(255, 243, 211, ${0.18 + animation.shimmer * 0.18})`;
+  ctx.beginPath();
+  ctx.ellipse(16, 8, 8, 2.8, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  fillRoundRect(ctx, 6, 0, 10, 12, 2, "#f4f1e9");
+  ctx.fillStyle = "#c74338";
+  ctx.fillRect(5, -2, 12, 4);
+  ctx.strokeStyle = "rgba(244, 241, 233, 0.5)";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(13, -4);
+  ctx.quadraticCurveTo(18, -10, 15, -15);
+  ctx.stroke();
+}
+
+function drawRushScooterObstacle(ctx, obstacle, animation) {
+  ctx.strokeStyle = "#2a3140";
+  ctx.lineWidth = 4.4;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(8, 28);
+  ctx.lineTo(31, 28);
+  ctx.lineTo(24, 11);
+  ctx.moveTo(31, 28);
+  ctx.lineTo(39, 7);
+  ctx.lineTo(35, 7);
+  ctx.stroke();
+
+  ctx.fillStyle = "#a98ee5";
+  fillRoundRect(ctx, 16, 18, 18, 4, 2, "#a98ee5");
+  fillRoundRect(ctx, 22, 10, 6, 8, 2, "#34c6ac");
+  drawWheel(ctx, 9, 30, animation.wheelRotation);
+  drawWheel(ctx, 33, 30, animation.wheelRotation);
+}
+
+function drawRushGateObstacle(ctx, obstacle, animation) {
+  fillRoundRect(ctx, 4, 0, obstacle.width - 8, obstacle.height, 5, "#384038");
+  fillRoundRect(ctx, 9, 7, obstacle.width - 18, 8, 2, "#34c6ac");
+  fillRoundRect(ctx, 10, 19, obstacle.width - 20, 18, 3, "#20241f");
+  ctx.fillStyle = "rgba(244, 241, 233, 0.16)";
+  ctx.fillRect(12, 22, obstacle.width - 24, 3);
+  ctx.fillStyle = "#f09a3e";
+  ctx.fillRect(obstacle.width - 10, 5, 3, obstacle.height - 10);
+}
+
+function drawRushBollardObstacle(ctx, obstacle) {
+  ctx.fillStyle = "#f09a3e";
+  ctx.beginPath();
+  ctx.moveTo(obstacle.width / 2, 0);
+  ctx.lineTo(obstacle.width, obstacle.height);
+  ctx.lineTo(0, obstacle.height);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#f4f1e9";
+  ctx.fillRect(6, 11, obstacle.width - 12, 4);
+  ctx.fillRect(4, 22, obstacle.width - 8, 4);
+  ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
+  ctx.fillRect(8, 27, obstacle.width - 16, 4);
+}
+
+function drawRushPedestrianObstacle(ctx, obstacle, animation) {
+  const sway = animation.step * 0.28;
+  const headY = 8 + animation.bob * 0.25;
+  ctx.fillStyle = "#efc29c";
+  ctx.beginPath();
+  ctx.arc(18, headY, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  fillRoundRect(ctx, 10, 16, 16, 17, 5, "#5c7ad6");
+  fillRoundRect(ctx, 28, 18, 7, 11, 2, "#f4f1e9");
+
+  ctx.strokeStyle = "#20241f";
+  ctx.lineWidth = 4;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(18, 20);
+  ctx.lineTo(18, 37);
+  ctx.moveTo(18, 23);
+  ctx.lineTo(8, 30 + sway);
+  ctx.moveTo(18, 23);
+  ctx.lineTo(30, 26 - sway);
+  ctx.moveTo(18, 37);
+  ctx.lineTo(10, 50 - sway);
+  ctx.moveTo(18, 37);
+  ctx.lineTo(29, 50 + sway);
+  ctx.stroke();
+}
+
+function drawRushBannerObstacle(ctx, obstacle, animation) {
+  ctx.strokeStyle = "rgba(244, 241, 233, 0.55)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(8, 0);
+  ctx.lineTo(8, 9);
+  ctx.moveTo(obstacle.width - 8, 0);
+  ctx.lineTo(obstacle.width - 8, 9);
+  ctx.stroke();
+
+  fillRoundRect(ctx, 0, 9, obstacle.width, obstacle.height - 9, 4, "#8b77d6");
+  ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+  ctx.fillRect(0, 12, obstacle.width, 4);
+  ctx.fillStyle = "#f4f1e9";
+  ctx.fillRect(10, 16, obstacle.width - 20, 4);
+  ctx.fillRect(16, 24, obstacle.width - 32, 4);
+}
+
+function drawRushSignObstacle(ctx, obstacle, animation) {
+  ctx.strokeStyle = "rgba(244, 241, 233, 0.5)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(10, -4);
+  ctx.lineTo(10, 0);
+  ctx.moveTo(obstacle.width - 10, -4);
+  ctx.lineTo(obstacle.width - 10, 0);
+  ctx.stroke();
+
+  fillRoundRect(ctx, 0, 0, obstacle.width, obstacle.height, 4, "#c74338");
+  ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+  ctx.fillRect(0, 2, obstacle.width, 3);
+  ctx.fillStyle = "#f4f1e9";
+  ctx.fillRect(8, 6, obstacle.width - 16, 3);
+  ctx.fillRect(12, 12, obstacle.width - 24, 2);
+}
+
+function drawRushBarrierObstacle(ctx, obstacle, animation) {
+  fillRoundRect(ctx, 0, 0, obstacle.width, obstacle.height, 4, "#e0b64b");
+  ctx.fillStyle = "rgba(21, 23, 19, 0.36)";
+  for (let x = 4; x < obstacle.width; x += 14) {
+    ctx.fillRect(x, 0, 5, obstacle.height);
+  }
+  ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+  ctx.fillRect(0, 2, obstacle.width, 2);
 }
 
 function drawRushSpeedNotice(ctx) {
@@ -2000,7 +2781,7 @@ function drawRushSpeedNotice(ctx) {
     ctx.fillStyle = "#f09a3e";
     ctx.font = "900 16px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("Speed Up!", rushGame.width / 2, 34);
+    ctx.fillText(t("rushSpeedUp"), rushGame.width / 2, 34);
     ctx.restore();
   }
 
@@ -2011,17 +2792,45 @@ function drawRushSpeedNotice(ctx) {
     ctx.fillStyle = "#34c6ac";
     ctx.font = "800 12px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("More commute chaos", rushGame.width / 2, 52);
+    ctx.fillText(t("rushSpawnUp"), rushGame.width / 2, 52);
+    ctx.restore();
+  }
+
+  if (rushGame.difficultyNoticeTimer > 0) {
+    const alpha = Math.min(1, rushGame.difficultyNoticeTimer);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#f4f1e9";
+    ctx.font = "900 14px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(t("rushDifficultyUp"), rushGame.width / 2, 70);
     ctx.restore();
   }
 }
 
-function drawWheel(ctx, x, y) {
+function drawWheel(ctx, x, y, rotation = 0) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
   ctx.strokeStyle = "#f4f1e9";
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2.6;
   ctx.beginPath();
-  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.arc(0, 0, 5, 0, Math.PI * 2);
   ctx.stroke();
+
+  ctx.strokeStyle = "rgba(244, 241, 233, 0.6)";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(-4, 0);
+  ctx.lineTo(4, 0);
+  ctx.moveTo(0, -4);
+  ctx.lineTo(0, 4);
+  ctx.moveTo(-2.8, -2.8);
+  ctx.lineTo(2.8, 2.8);
+  ctx.moveTo(-2.8, 2.8);
+  ctx.lineTo(2.8, -2.8);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function getRushPlayerHitbox() {
@@ -2090,6 +2899,7 @@ function normalizeState() {
 }
 
 function clearAllLocalData() {
+  pauseRushMusic();
   localStorage.clear();
   profile = null;
   timeOffRecords = [];
@@ -2099,6 +2909,7 @@ function clearAllLocalData() {
   trackingStartTimestamp = null;
   language = "en";
   currency = "USD";
+  rushMusic = null;
   displayedEarningsValue = 0;
   setActiveRange("day");
   applyPreferencesToControls();
@@ -2129,7 +2940,8 @@ function exportAppData() {
       trackingStartTimestamp,
       language,
       currency,
-      rushBest: getRushBestScore()
+      rushBest: getRushBestScore(),
+      rushMusicMuted: rushMusic ? rushMusic.muted : readStorage(RUSH_MUSIC_MUTED_KEY, false) === true
     }
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -2200,6 +3012,7 @@ function validateImportPayload(payload) {
   const importedLanguage = TRANSLATIONS[data.language] ? data.language : "en";
   const importedCurrency = ["USD", "RMB"].includes(data.currency) ? data.currency : "USD";
   const importedRushBest = Math.max(0, Math.floor(Number(data.rushBest) || 0));
+  const importedRushMusicMuted = data.rushMusicMuted === true;
 
   return {
     ok: true,
@@ -2212,7 +3025,8 @@ function validateImportPayload(payload) {
       trackingStartTimestamp: importedTrackingStart,
       language: importedLanguage,
       currency: importedCurrency,
-      rushBest: importedRushBest
+      rushBest: importedRushBest,
+      rushMusicMuted: importedRushMusicMuted
     }
   };
 }
@@ -2227,6 +3041,12 @@ function applyImportedData(data) {
   language = data.language;
   currency = data.currency;
   writeStorage(RUSH_BEST_KEY, data.rushBest || 0);
+  writeStorage(RUSH_MUSIC_MUTED_KEY, data.rushMusicMuted === true);
+  if (rushMusic) {
+    rushMusic.muted = data.rushMusicMuted === true;
+    rushMusic.audio.muted = rushMusic.muted;
+    updateRushMusicButton();
+  }
   if (rushGame) {
     rushGame.best = data.rushBest || 0;
     updateRushHud();
