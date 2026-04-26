@@ -1083,6 +1083,31 @@ button:disabled {
   max-width: 940px;
 }
 
+.pay-input-field {
+  min-width: 0;
+}
+
+.pay-summary {
+  display: grid;
+  gap: 8px;
+  max-width: 940px;
+  margin: -4px 0 22px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(40, 45, 38, 0.72);
+}
+
+.pay-summary strong {
+  font-size: 1rem;
+}
+
+.pay-summary p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .preferences-form {
   margin-bottom: 22px;
 }

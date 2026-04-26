@@ -161,7 +161,14 @@ const TRANSLATIONS = {
     settingsTitle: "Profile and saved data.",
     language: "Language",
     currency: "Currency",
+    payType: "Pay type",
+    payTypeHourly: "Hourly wage",
+    payTypeMonthly: "Monthly salary",
     hourlyWage: "Hourly wage",
+    monthlySalary: "Monthly salary",
+    effectiveHourlyRate: "Estimated hourly rate",
+    estimatedMonthlyWorkHours: "Estimated monthly work hours",
+    paySummaryTitle: "Pay setup",
     hoursPerDay: "Hours per workday",
     overtimeAfter: "Overtime starts after (hours per day)",
     overtimeMultiplier: "Overtime pay multiplier",
@@ -179,7 +186,10 @@ const TRANSLATIONS = {
     historyEmpty: "No history yet. Your history will start once you begin using the tracker.",
     historyRangeEmpty: "No history in this date range.",
     calculatedBasedOn: "Calculated based on:",
+    explanationPayType: "Pay type: {type}",
+    explanationPayInput: "{label}: {value}",
     explanationHourlyRate: "Hourly rate: {rate}",
+    explanationEffectiveRate: "Estimated hourly rate: {rate}",
     explanationWorkedTime: "Worked time: {hours}",
     explanationOvertime: "Overtime after {hours} hours at {multiplier}x",
     explanationBonus: "Bonus added separately: {bonus}",
@@ -191,6 +201,14 @@ const TRANSLATIONS = {
     importSuccess: "Data imported successfully.",
     importError: "Import failed. Choose a valid earnings tracker JSON backup.",
     importReadError: "Could not read that file.",
+    validationHourlyWage: "Enter an hourly wage greater than 0.",
+    validationMonthlySalary: "Enter a monthly salary greater than 0.",
+    validationHoursPerDay: "Enter workday hours between 0.25 and 24.",
+    validationOvertimeAfter: "Enter overtime start hours between 0 and 24.",
+    validationOvertimeMultiplier: "Enter an overtime multiplier of 1 or higher.",
+    validationStartTime: "Choose a work start time.",
+    validationWorkdays: "Choose at least one workday.",
+    validationEstimatedMonthlyHours: "Monthly salary needs workdays and daily hours so the tracker can estimate monthly work hours.",
     resetTodayHelp: "Reset today clears today's work session and manual adjustment only.",
     clearAllHelp: "Clear all data removes every saved tracker record from this browser.",
     takeBreak: "Take a Break",
@@ -359,7 +377,14 @@ const TRANSLATIONS = {
     settingsTitle: "资料与保存的数据",
     language: "语言",
     currency: "货币",
+    payType: "工资类型",
+    payTypeHourly: "每小时工资",
+    payTypeMonthly: "每月工资",
     hourlyWage: "时薪",
+    monthlySalary: "月工资",
+    effectiveHourlyRate: "估算时薪",
+    estimatedMonthlyWorkHours: "估算每月工时",
+    paySummaryTitle: "工资设置",
     hoursPerDay: "每天工作小时数",
     overtimeAfter: "每天超过多少小时开始加班",
     overtimeMultiplier: "加班工资倍数",
@@ -377,7 +402,10 @@ const TRANSLATIONS = {
     historyEmpty: "暂无历史。开始使用追踪器后会生成历史记录。",
     historyRangeEmpty: "这个日期范围内没有历史记录。",
     calculatedBasedOn: "计算依据：",
+    explanationPayType: "工资类型：{type}",
+    explanationPayInput: "{label}：{value}",
     explanationHourlyRate: "时薪：{rate}",
+    explanationEffectiveRate: "估算时薪：{rate}",
     explanationWorkedTime: "计薪工时：{hours}",
     explanationOvertime: "超过 {hours} 小时后按 {multiplier} 倍加班计算",
     explanationBonus: "奖金单独加入：{bonus}",
@@ -389,6 +417,14 @@ const TRANSLATIONS = {
     importSuccess: "数据导入成功。",
     importError: "导入失败。请选择有效的收入追踪器 JSON 备份。",
     importReadError: "无法读取该文件。",
+    validationHourlyWage: "请输入大于 0 的每小时工资。",
+    validationMonthlySalary: "请输入大于 0 的每月工资。",
+    validationHoursPerDay: "请输入 0.25 到 24 之间的每日工时。",
+    validationOvertimeAfter: "请输入 0 到 24 之间的加班起算工时。",
+    validationOvertimeMultiplier: "请输入大于或等于 1 的加班倍数。",
+    validationStartTime: "请选择工作开始时间。",
+    validationWorkdays: "请至少选择一个工作日。",
+    validationEstimatedMonthlyHours: "月工资模式需要先设置工作日和每日工时，才能估算每月工时。",
     resetTodayHelp: "重置今天只会清除今天的工作状态和手动调整。",
     clearAllHelp: "清除所有数据会删除此浏览器中的全部追踪器记录。",
     takeBreak: "开始摸鱼",
@@ -441,6 +477,15 @@ const elements = {
   setupForm: document.querySelector("#setupForm"),
   setupImportData: document.querySelector("#setupImportData"),
   profileForm: document.querySelector("#profileForm"),
+  setupPayType: document.querySelector("#setupPayType"),
+  setupHourlyField: document.querySelector("#setupHourlyField"),
+  setupMonthlyField: document.querySelector("#setupMonthlyField"),
+  setupMonthlySalary: document.querySelector("#setupMonthlySalary"),
+  profilePayType: document.querySelector("#profilePayType"),
+  profileHourlyField: document.querySelector("#profileHourlyField"),
+  profileMonthlyField: document.querySelector("#profileMonthlyField"),
+  profileMonthlySalary: document.querySelector("#profileMonthlySalary"),
+  profilePaySummary: document.querySelector("#profilePaySummary"),
   languageSelect: document.querySelector("#languageSelect"),
   currencySelect: document.querySelector("#currencySelect"),
   setupError: document.querySelector("#setupError"),
@@ -666,6 +711,17 @@ function wireForms() {
 
   elements.timeOffForm.addEventListener("submit", addTimeOffRecord);
   elements.bonusForm.addEventListener("submit", addBonusRecord);
+  elements.setupPayType.addEventListener("change", () => syncPayTypeFields("setup"));
+  elements.profilePayType.addEventListener("change", () => {
+    syncPayTypeFields("profile");
+    renderProfilePaySummary();
+  });
+  ["profileWage", "profileMonthlySalary", "profileHours", "profileOvertimeAfter", "profileOvertimeMultiplier", "profileStart"].forEach((id) => {
+    document.querySelector(`#${id}`).addEventListener("input", renderProfilePaySummary);
+  });
+  document.querySelectorAll("[name='profileWorkday']").forEach((checkbox) => {
+    checkbox.addEventListener("change", renderProfilePaySummary);
+  });
   elements.languageSelect.addEventListener("change", updateLanguagePreference);
   elements.currencySelect.addEventListener("change", updateCurrencyPreference);
   elements.startWorkButton.addEventListener("click", startManualWork);
@@ -740,6 +796,7 @@ function applyLanguage() {
     showRushOverlay(rushGame.state === "gameOver" ? "gameOver" : "idle");
   }
   updateRushMusicButton();
+  renderProfilePaySummary();
 }
 
 function t(key, replacements = {}) {
@@ -778,23 +835,31 @@ function showSection(sectionId) {
 }
 
 function prefillFirstSetup() {
+  elements.setupPayType.value = "hourly";
   document.querySelector("#setupHours").value = "8";
   document.querySelector("#setupOvertimeAfter").value = "8";
   document.querySelector("#setupOvertimeMultiplier").value = "1.5";
   document.querySelector("#setupStart").value = "09:00";
+  document.querySelector("#setupWage").value = "25";
+  document.querySelector("#setupMonthlySalary").value = "";
   document.querySelectorAll("[name='setupWorkday']").forEach((checkbox) => {
     checkbox.checked = ["1", "2", "3", "4", "5"].includes(checkbox.value);
   });
+  syncPayTypeFields("setup");
 }
 
 function fillProfileForms() {
   if (!profile) return;
   fillProfileForm("setup");
   fillProfileForm("profile");
+  renderProfilePaySummary();
 }
 
 function fillProfileForm(prefix) {
-  document.querySelector(`#${prefix}Wage`).value = profile.hourlyWage;
+  const payType = profile.payType || "hourly";
+  document.querySelector(`#${prefix}PayType`).value = payType;
+  document.querySelector(`#${prefix}Wage`).value = payType === "hourly" ? profile.hourlyWage : "";
+  document.querySelector(`#${prefix}MonthlySalary`).value = payType === "monthly" ? profile.monthlySalary : "";
   document.querySelector(`#${prefix}Hours`).value = profile.hoursPerDay;
   document.querySelector(`#${prefix}OvertimeAfter`).value = getOvertimeThreshold();
   document.querySelector(`#${prefix}OvertimeMultiplier`).value = getOvertimeMultiplier();
@@ -802,10 +867,13 @@ function fillProfileForm(prefix) {
   document.querySelectorAll(`[name='${prefix}Workday']`).forEach((checkbox) => {
     checkbox.checked = profile.workdays.includes(Number(checkbox.value));
   });
+  syncPayTypeFields(prefix);
 }
 
 function collectProfile(prefix) {
+  const payType = getPayTypeValue(prefix);
   const hourlyWage = Number(document.querySelector(`#${prefix}Wage`).value);
+  const monthlySalary = Number(document.querySelector(`#${prefix}MonthlySalary`).value);
   const hoursPerDay = Number(document.querySelector(`#${prefix}Hours`).value);
   const overtimeAfter = Number(document.querySelector(`#${prefix}OvertimeAfter`).value);
   const overtimeMultiplier = Number(document.querySelector(`#${prefix}OvertimeMultiplier`).value);
@@ -814,34 +882,54 @@ function collectProfile(prefix) {
     .map((checkbox) => Number(checkbox.value))
     .sort((a, b) => a - b);
 
-  if (!Number.isFinite(hourlyWage) || hourlyWage <= 0) {
-    return { ok: false, message: "Enter an hourly wage greater than 0." };
-  }
-
   if (!Number.isFinite(hoursPerDay) || hoursPerDay <= 0 || hoursPerDay > 24) {
-    return { ok: false, message: "Enter workday hours between 0.25 and 24." };
+    return { ok: false, message: t("validationHoursPerDay") };
   }
 
   if (!Number.isFinite(overtimeAfter) || overtimeAfter < 0 || overtimeAfter > 24) {
-    return { ok: false, message: "Enter overtime start hours between 0 and 24." };
+    return { ok: false, message: t("validationOvertimeAfter") };
   }
 
   if (!Number.isFinite(overtimeMultiplier) || overtimeMultiplier < 1) {
-    return { ok: false, message: "Enter an overtime multiplier of 1 or higher." };
+    return { ok: false, message: t("validationOvertimeMultiplier") };
   }
 
   if (!startTime) {
-    return { ok: false, message: "Choose a work start time." };
+    return { ok: false, message: t("validationStartTime") };
   }
 
   if (workdays.length === 0) {
-    return { ok: false, message: "Choose at least one workday." };
+    return { ok: false, message: t("validationWorkdays") };
+  }
+
+  let calculatedHourlyRate = 0;
+
+  if (payType === "monthly") {
+    if (!Number.isFinite(monthlySalary) || monthlySalary <= 0) {
+      return { ok: false, message: t("validationMonthlySalary") };
+    }
+
+    const estimatedMonthlyWorkHours = getEstimatedMonthlyWorkHours(hoursPerDay, workdays.length);
+    if (!Number.isFinite(estimatedMonthlyWorkHours) || estimatedMonthlyWorkHours <= 0) {
+      return { ok: false, message: t("validationEstimatedMonthlyHours") };
+    }
+
+    calculatedHourlyRate = roundHours(monthlySalary / estimatedMonthlyWorkHours);
+  } else {
+    if (!Number.isFinite(hourlyWage) || hourlyWage <= 0) {
+      return { ok: false, message: t("validationHourlyWage") };
+    }
+
+    calculatedHourlyRate = roundHours(hourlyWage);
   }
 
   return {
     ok: true,
     profile: {
-      hourlyWage: roundMoney(hourlyWage),
+      payType,
+      hourlyWage: payType === "hourly" ? roundMoney(hourlyWage) : null,
+      monthlySalary: payType === "monthly" ? roundMoney(monthlySalary) : null,
+      calculatedHourlyRate,
       hoursPerDay,
       overtimeAfter,
       overtimeMultiplier,
@@ -850,6 +938,64 @@ function collectProfile(prefix) {
       updatedAt: new Date().toISOString()
     }
   };
+}
+
+function getPayTypeValue(prefix) {
+  const value = document.querySelector(`#${prefix}PayType`).value;
+  return value === "monthly" ? "monthly" : "hourly";
+}
+
+function syncPayTypeFields(prefix) {
+  const payType = getPayTypeValue(prefix);
+  const hourlyField = elements[`${prefix}HourlyField`];
+  const monthlyField = elements[`${prefix}MonthlyField`];
+  const hourlyInput = document.querySelector(`#${prefix}Wage`);
+  const monthlyInput = document.querySelector(`#${prefix}MonthlySalary`);
+  const usingHourly = payType === "hourly";
+
+  hourlyField.classList.toggle("hidden", !usingHourly);
+  monthlyField.classList.toggle("hidden", usingHourly);
+  hourlyInput.disabled = !usingHourly;
+  monthlyInput.disabled = usingHourly;
+}
+
+function getEstimatedMonthlyWorkHours(hoursPerDay, workdaysPerWeek) {
+  const hours = Number(hoursPerDay);
+  const workdays = Number(workdaysPerWeek);
+
+  if (!Number.isFinite(hours) || hours <= 0) return 0;
+  if (!Number.isFinite(workdays) || workdays <= 0) return 0;
+
+  return roundHours((workdays * hours * 52) / 12);
+}
+
+function renderProfilePaySummary() {
+  if (!elements.profilePaySummary) return;
+
+  const payType = getPayTypeValue("profile");
+  const hoursPerDay = Number(document.querySelector("#profileHours").value);
+  const workdaysPerWeek = document.querySelectorAll("[name='profileWorkday']:checked").length;
+  const estimatedMonthlyHours = getEstimatedMonthlyWorkHours(hoursPerDay, workdaysPerWeek);
+  const hourlyValue = Number(document.querySelector("#profileWage").value);
+  const monthlyValue = Number(document.querySelector("#profileMonthlySalary").value);
+  const effectiveRate = payType === "monthly"
+    ? (estimatedMonthlyHours > 0 && Number.isFinite(monthlyValue) && monthlyValue > 0 ? monthlyValue / estimatedMonthlyHours : 0)
+    : hourlyValue;
+  const payTypeLabel = t(payType === "monthly" ? "payTypeMonthly" : "payTypeHourly");
+  const payValueLabel = payType === "monthly" ? t("monthlySalary") : t("hourlyWage");
+  const payValueText = payType === "monthly"
+    ? (monthlyValue > 0 ? formatMoney(monthlyValue) : "--")
+    : (hourlyValue > 0 ? formatMoneyPerHour(hourlyValue) : "--");
+  const monthlyHoursText = estimatedMonthlyHours > 0 ? formatHours(estimatedMonthlyHours) : "--";
+  const effectiveRateText = effectiveRate > 0 ? formatMoneyPerHour(effectiveRate) : "--";
+
+  elements.profilePaySummary.innerHTML = `
+    <strong>${escapeHtml(t("paySummaryTitle"))}</strong>
+    <p>${escapeHtml(t("explanationPayType", { type: payTypeLabel }))}</p>
+    <p>${escapeHtml(t("explanationPayInput", { label: payValueLabel, value: payValueText }))}</p>
+    <p>${escapeHtml(t("explanationPayInput", { label: t("estimatedMonthlyWorkHours"), value: monthlyHoursText }))}</p>
+    <p>${escapeHtml(t("explanationEffectiveRate", { rate: effectiveRateText }))}</p>
+  `;
 }
 
 function addTimeOffRecord(event) {
@@ -3092,7 +3238,12 @@ function showBackupMessage(message, isError) {
 function normalizeProfile(value) {
   if (!value || typeof value !== "object") return null;
 
+  const payType = value.payType === "monthly" ? "monthly" : "hourly";
   const hourlyWage = Number(value.hourlyWage);
+  const monthlySalary = Number(value.monthlySalary);
+  const calculatedHourlyRate = Number.isFinite(Number(value.calculatedHourlyRate))
+    ? Number(value.calculatedHourlyRate)
+    : hourlyWage;
   const hoursPerDay = Number(value.hoursPerDay);
   const overtimeAfter = Number.isFinite(Number(value.overtimeAfter)) ? Number(value.overtimeAfter) : hoursPerDay;
   const overtimeMultiplier = Number.isFinite(Number(value.overtimeMultiplier)) ? Number(value.overtimeMultiplier) : 1.5;
@@ -3101,15 +3252,24 @@ function normalizeProfile(value) {
     ? value.workdays.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
     : [];
 
-  if (!Number.isFinite(hourlyWage) || hourlyWage <= 0) return null;
   if (!Number.isFinite(hoursPerDay) || hoursPerDay <= 0 || hoursPerDay > 24) return null;
   if (!Number.isFinite(overtimeAfter) || overtimeAfter < 0 || overtimeAfter > 24) return null;
   if (!Number.isFinite(overtimeMultiplier) || overtimeMultiplier < 1) return null;
   if (!isValidClockTime(startTime)) return null;
   if (!workdays.length) return null;
 
+  if (payType === "monthly") {
+    if (!Number.isFinite(monthlySalary) || monthlySalary <= 0) return null;
+    if (!Number.isFinite(calculatedHourlyRate) || calculatedHourlyRate <= 0) return null;
+  } else if (!Number.isFinite(hourlyWage) || hourlyWage <= 0) {
+    return null;
+  }
+
   return {
-    hourlyWage: roundMoney(hourlyWage),
+    payType,
+    hourlyWage: payType === "hourly" ? roundMoney(hourlyWage) : null,
+    monthlySalary: payType === "monthly" ? roundMoney(monthlySalary) : null,
+    calculatedHourlyRate: roundHours(calculatedHourlyRate),
     hoursPerDay,
     overtimeAfter,
     overtimeMultiplier,
@@ -3277,6 +3437,7 @@ function renderEverything() {
   renderTimeOffTable();
   renderBonusTable();
   renderHistory();
+  renderProfilePaySummary();
 }
 
 function updateMainEarnings(targetValue, options = {}) {
@@ -3467,7 +3628,7 @@ function renderRateBreakdown(todaySummary) {
   const todaySession = getWorkSessionForDate(formatDateKey(new Date()));
   const isApprovedOvertime = todaySession && todaySession.overtimeApproved && getOpenManualSegment(todaySession);
   const isOvertime = todaySummary && (todaySummary.overtimeHours > 0 || isApprovedOvertime);
-  const baseRate = Number(profile.hourlyWage) || 0;
+  const baseRate = getHourlyRate();
   const overtimeRate = baseRate * getOvertimeMultiplier();
 
   elements.rateBreakdown.dataset.mode = isOvertime ? "overtime" : "normal";
@@ -3654,11 +3815,20 @@ function setTodayDetails(details) {
 function renderCalculationExplanation(details) {
   if (!elements.calculationExplanation) return;
 
-  const hourlyRate = profile ? formatMoney(profile.hourlyWage) : formatMoney(0);
+  const payTypeLabel = profile ? t(profile.payType === "monthly" ? "payTypeMonthly" : "payTypeHourly") : t("payTypeHourly");
+  const originalPayLabel = profile && profile.payType === "monthly" ? t("monthlySalary") : t("hourlyWage");
+  const originalPayValue = !profile
+    ? formatMoney(0)
+    : profile.payType === "monthly"
+      ? formatMoney(profile.monthlySalary || 0)
+      : formatMoneyPerHour(profile.hourlyWage || 0);
+  const hourlyRate = profile ? formatMoneyPerHour(getHourlyRate()) : formatMoneyPerHour(0);
   const overtimeLimit = profile ? getOvertimeThreshold() : 0;
   const multiplier = profile ? getOvertimeMultiplier() : 1;
   const rows = [
-    t("explanationHourlyRate", { rate: hourlyRate }),
+    t("explanationPayType", { type: payTypeLabel }),
+    t("explanationPayInput", { label: originalPayLabel, value: originalPayValue }),
+    t("explanationEffectiveRate", { rate: hourlyRate }),
     t("explanationWorkedTime", { hours: formatHours(details.workedHours || 0) }),
     t("explanationOvertime", { hours: formatHours(overtimeLimit), multiplier }),
     t("explanationBonus", { bonus: formatMoney(details.bonus || 0) })
@@ -4338,8 +4508,8 @@ function calculateSessionPayForDate(dateKey, session, now, clampStart = null) {
     : 0;
 
   return {
-    base: roundMoney(normalHours * profile.hourlyWage),
-    overtime: roundMoney(overtimeHours * profile.hourlyWage * getOvertimeMultiplier()),
+    base: roundMoney(normalHours * getHourlyRate()),
+    overtime: roundMoney(overtimeHours * getHourlyRate() * getOvertimeMultiplier()),
     normalHours,
     overtimeHours
   };
@@ -4353,8 +4523,8 @@ function calculatePayForHours(hours) {
   const overtimeHours = Math.max(0, workedHours - overtimeAfter);
 
   return {
-    base: roundMoney(normalHours * profile.hourlyWage),
-    overtime: roundMoney(overtimeHours * profile.hourlyWage * overtimeMultiplier),
+    base: roundMoney(normalHours * getHourlyRate()),
+    overtime: roundMoney(overtimeHours * getHourlyRate() * overtimeMultiplier),
     overtimeHours
   };
 }
@@ -4485,8 +4655,8 @@ function getCurrentEarningsRate(todaySummary) {
 
   const isApprovedOvertime = session && session.overtimeApproved && openSegment;
   const hourlyRate = isApprovedOvertime || todaySummary.overtimeHours > 0
-    ? profile.hourlyWage * getOvertimeMultiplier()
-    : profile.hourlyWage;
+    ? getHourlyRate() * getOvertimeMultiplier()
+    : getHourlyRate();
 
   return hourlyRate / 3600;
 }
@@ -4873,6 +5043,10 @@ function formatMoney(value) {
   })}`;
 }
 
+function formatMoneyPerHour(value) {
+  return `${formatMoney(value)}/${t("perHourUnit")}`;
+}
+
 function formatRatePerSecond(value) {
   const symbol = currency === "RMB" ? "¥" : "$";
 
@@ -4892,6 +5066,16 @@ function formatCompactMoney(value) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
   });
+}
+
+function getHourlyRate(profileValue = profile) {
+  if (!profileValue) return 0;
+
+  const rate = Number(profileValue.calculatedHourlyRate);
+  if (Number.isFinite(rate) && rate > 0) return rate;
+
+  const fallback = Number(profileValue.hourlyWage);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
 }
 
 function formatHours(value) {

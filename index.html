@@ -44,8 +44,19 @@
         </div>
         <form id="setupForm" class="form-grid">
           <label>
-            Hourly wage
-            <input id="setupWage" type="number" min="0.01" step="0.01" placeholder="25.00" required>
+            <span data-i18n="payType">Pay type</span>
+            <select id="setupPayType">
+              <option value="hourly" data-i18n="payTypeHourly">Hourly wage</option>
+              <option value="monthly" data-i18n="payTypeMonthly">Monthly salary</option>
+            </select>
+          </label>
+          <label id="setupHourlyField" class="pay-input-field">
+            <span data-i18n="hourlyWage">Hourly wage</span>
+            <input id="setupWage" type="number" min="0.01" step="0.01" placeholder="25.00">
+          </label>
+          <label id="setupMonthlyField" class="pay-input-field hidden">
+            <span data-i18n="monthlySalary">Monthly salary</span>
+            <input id="setupMonthlySalary" type="number" min="0.01" step="0.01" placeholder="4000.00">
           </label>
           <label>
             Hours per workday
@@ -526,8 +537,19 @@
 
           <form id="profileForm" class="form-grid settings-form">
             <label>
+              <span data-i18n="payType">Pay type</span>
+              <select id="profilePayType">
+                <option value="hourly" data-i18n="payTypeHourly">Hourly wage</option>
+                <option value="monthly" data-i18n="payTypeMonthly">Monthly salary</option>
+              </select>
+            </label>
+            <label id="profileHourlyField" class="pay-input-field">
               <span data-i18n="hourlyWage">Hourly wage</span>
-              <input id="profileWage" type="number" min="0.01" step="0.01" required>
+              <input id="profileWage" type="number" min="0.01" step="0.01">
+            </label>
+            <label id="profileMonthlyField" class="pay-input-field hidden">
+              <span data-i18n="monthlySalary">Monthly salary</span>
+              <input id="profileMonthlySalary" type="number" min="0.01" step="0.01">
             </label>
             <label>
               <span data-i18n="hoursPerDay">Hours per workday</span>
@@ -559,6 +581,7 @@
             <p id="profileSaved" class="success-message" aria-live="polite"></p>
             <button class="primary-action" type="submit" data-i18n="updateProfile">Update profile</button>
           </form>
+          <div id="profilePaySummary" class="pay-summary"></div>
 
           <div class="backup-zone">
             <div>
